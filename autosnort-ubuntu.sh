@@ -15,7 +15,7 @@ rm ${logfile}.pipe
 
 ########################################
 
-#metasploit-like print statements. Gratuitously ganked from  Darkoperator's metasploit install script. status messages, error messages, good status returns. I added in a notification print for areas users should definitely pay attention to.
+#metasploit-like print statements. Gratuitously ganked from Darkoperator's metasploit install script. status messages, error messages, good status returns. I added in a notification print for areas users should definitely pay attention to.
 
 function print_status ()
 {
@@ -42,24 +42,20 @@ function print_notification ()
 
 function error_check
 {
-
 if [ $? -eq 0 ]; then
     print_good "$1 successfully completed."
 else
     print_error "$1 failed. Please check $logfile for more details, or contact deusexmachina667 at gmail dot com for more assistance."
-exit 1
+    exit 1
 fi
-
 }
 ########################################
 #Package installation function.
 
 function install_packages()
 {
-
 apt-get update &>> $logfile && apt-get install -y ${@} &>> $logfile
 error_check 'Package installation'
-
 }
 
 ########################################
@@ -69,7 +65,6 @@ error_check 'Package installation'
 
 function pp_postprocessing()
 {
-
 print_good "Rules processed successfully. Rules located in $snort_basedir/rules."
 print_notification "Pulledpork is located in /usr/src/pulledpork."
 print_notification "By default, Autosnort runs Pulledpork with the Security over Connectivity ruleset."
@@ -91,7 +86,6 @@ done
 cp /usr/src/$snortver/etc/gen-msg.map $snort_basedir/etc
 
 #Restores /etc/crontab_bkup if it exists. This is to prevent dupe crontab entries.
-
 if [ -f /etc/crontab_bkup ]; then
     print_notification "Found /etc/crontab_bkup. Restoring original crontab to prevent duplicate cron entries.."
     cp /etc/crontab_bkup /etc/crontab
@@ -100,34 +94,26 @@ if [ -f /etc/crontab_bkup ]; then
 fi
 
 print_status "Backup up crontab to /etc/crontab_bkup.."
-
 cp /etc/crontab /etc/crontab_bkup
 chmod 600 /etc/crontab_bkup
 error_check 'crontab backup'
 
 print_status "Adding entry to /etc/crontab to run pulledpork Sunday at midnight (once weekly).."
-
 echo "#This line has been added by Autosnort to run pulledpork for the latest rule updates." >> /etc/crontab
 echo "  0  0  *  *  7  root /usr/src/pulledpork/pulledpork.pl -c /usr/src/pulledpork/etc/pulledpork.conf" >> /etc/crontab
-
 print_notification "crontab has been modified. If you want to modify when pulled pork runs to check rule updates, modify /etc/crontab."
-
 }
 
 #This script creates a lot of directories by default. This is a function that checks if a directory already exists and if it doesn't creates the directory (including parent dirs if they're missing).
-
 ########################################
-
 function dir_check()
 {
-
 if [ ! -d $1 ]; then
     print_notification "$1 does not exist. Creating.."
     mkdir -p $1
 else
     print_notification "$1 already exists."
 fi
-
 }
 
 ########################################
@@ -135,10 +121,7 @@ fi
 
 #Pre checks: These are a couple of basic sanity checks the script does before proceeding.
 
-########################################
-
 #These lines establish where autosnort was executed. The config file _should_ be in this directory. the script exits if the config isn't in the same directory as the autosnort-ubuntu shell script.
-
 print_status "Checking for config file.."
 execdir=`pwd`
 if [ ! -f "$execdir"/full_autosnort.conf ]; then
@@ -151,7 +134,6 @@ fi
 source "$execdir"/full_autosnort.conf
 
 ########################################
-
 print_status "Checking for root privs.."
 if [ $(whoami) != "root" ]; then
     print_error "This script must be ran with sudo or root privileges."
@@ -160,8 +142,6 @@ else
     print_good "We are root."
 fi
      
-########################################     
-
 #this is a nice little hack I found in stack exchange to suppress messages during package installation.
 export DEBIAN_FRONTEND=noninteractive
 
@@ -172,7 +152,6 @@ error_check 'System updates'
 
 ########################################
 #Need to do an OS version check.
-
 print_status "OS Version Check.."
 release=`lsb_release -r|awk '{print $2}'`
 if [[ $release == "18."* || "20."* ]]; then
@@ -184,9 +163,7 @@ fi
 
 ########################################
 #These packages are required at a minimum to build snort, the data acquisition (DAQ) libraries, and the pulledpork rule manager. 
-
 if [[ $release == "20."* ]]; then
-
     print_status "Installing base packages: libdumbnet-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev.."
     
     declare -a packages=( libdumbnet-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev );
@@ -197,9 +174,7 @@ if [[ $release == "20."* ]]; then
     print_status "Verifying Archive::Tar module is available.."
     perl -MArchive::Tar -e 'exit 0' &>> $logfile
     error_check "Verification of Archive::Tar module"
-
 else
-    
     #some of the packages we need aren't in the main package repo in 18.04, so we need to modify sources.list to install packages from universe.
     print_status "Adjusting /etc/apt/sources.list to utilize universe packages.."
     print_notification "If you are not running Ubuntu 18.04, I highly suggest hitting Ctrl+C to cancel this, or you'll end up adding package sources to your distro that could potentially break a lot of stuff."
@@ -228,11 +203,9 @@ else
     print_status "Verifying Archive::Tar module is available.."
     perl -MArchive::Tar -e 'exit 0' &>> $logfile
     error_check "Verification of Archive::Tar module"
-
 fi
 
 #Ubuntu and Debian-based distros renamed libdnet to libdumbnet due to a library conflict. We create a symlink from libdumbnet.h to libdnet.h because barnyard 2 is expecting to find dnet.h, and does NOT look for dumbnet.h 
-
 if [ ! -h /usr/include/dnet.h ]; then
 print_status "Creating symlink for libdumbnet.h to dnet.h.."
 ln -s /usr/include/dumbnet.h  /usr/include/dnet.h
@@ -244,9 +217,7 @@ fi
 # The snort and daq version to download
 # Some text manipulation to pull a snort.conf file versions to download from labs.snort.org
 # The last four supported snort rule tarball versions
-
 print_status "Checking latest versions of Snort, Daq and Rules via snort.org..."
-
 cd /tmp
 wget https://www.snort.org -O /tmp/snort &> $logfile
 error_check 'Download of snort.org index page'
@@ -255,28 +226,59 @@ wget https://www.snort.org/documents -O /tmp/snort_conf &> $logfile
 error_check 'Download of snort.conf examples page'
 
 #had to change the regex for snorttar -- used to be that the snort-x.x.x.x.tar.gz file would have exactly four digits (each x is one digit). Snort 2.9.11 has change that -- not only can new versions only have three digits, the minor version number is now in the double digits -- which is something I never encountered, so I never coded for it
-
 snorttar=`egrep -o "snort-([0-9]+\.?){3,}\.tar\.gz" /tmp/snort | head -1`
 daqtar=`egrep -o "daq-.*.tar.gz" /tmp/snort | head -1 | cut -d"<" -f1`
 snortver=`echo $snorttar | sed 's/.tar.gz//g'`
 daqver=`echo $daqtar | sed 's/.tar.gz//g'`
 
 #had to change the regex for the conf file download choices to ensure we're pulling snort 2.x config files.
-
 choice1conf=`egrep -o "snort-20.*-conf" /tmp/snort_conf | sort -ru | head -1` #snort.conf download attempt 1
 choice2conf=`egrep -o "snort-20.*-conf" /tmp/snort_conf | sort -ru | head -2 | tail -1` #snort.conf download 
-
 rm /tmp/snort
 rm /tmp/snort_conf
 cd /usr/src
 
 ########################################
-#Download, extract, build and install Daq Libraries.
-
+#Download, extract, build and install DAQ Libraries.
 print_status "Acquiring and unpacking $daqver to /usr/src.."
 
-wget https://www.snort.org/downloads/snort/$daqtar -O $daqtar &>> $logfile
-error_check 'Download of DAQ'
+# Log the exact URL for debugging
+print_notification "Attempting to download DAQ from: https://www.snort.org/downloads/snort/$daqtar"
+
+# Try downloading the primary DAQ tarball with retries
+for attempt in {1..3}; do
+    print_status "Download attempt $attempt for $daqtar..."
+    wget --tries=2 --timeout=10 https://www.snort.org/downloads/snort/$daqtar -O $daqtar &>> $logfile
+    if [ $? -eq 0 ]; then
+        print_good "Successfully downloaded $daqtar."
+        break
+    else
+        print_notification "Attempt $attempt failed for $daqtar."
+        if [ $attempt -eq 3 ]; then
+            print_error "Failed to download $daqtar after 3 attempts. Check $logfile for details."
+            print_notification "Possible reasons: Network issues, outdated DAQ version, or snort.org server restrictions."
+            print_notification "Manual workaround: Visit https://www.snort.org/downloads, find the latest DAQ tarball, download it, and place it in /usr/src as $daqtar, then re-run the script."
+            exit 1
+        fi
+        sleep 5
+    fi
+done
+
+# Fallback to a known DAQ version if primary download fails
+if [ ! -f $daqtar ]; then
+    fallback_daq="daq-2.0.7.tar.gz"  # Known stable version for Snort 2.x
+    print_status "Attempting fallback download for $fallback_daq..."
+    wget --tries=2 --timeout=10 https://www.snort.org/downloads/snort/$fallback_daq -O $fallback_daq &>> $logfile
+    if [ $? -eq 0 ]; then
+        print_good "Successfully downloaded fallback $fallback_daq."
+        daqtar=$fallback_daq
+        daqver="daq-2.0.7"
+    else
+        print_error "Fallback download for $fallback_daq failed. Check $logfile for details."
+        print_notification "Manual workaround: Visit https://www.snort.org/downloads, find the latest DAQ tarball, download it, and place it in /usr/src as $daqtar, then re-run the script."
+        exit 1
+    fi
+fi
 
 tar -xzvf $daqtar &>> $logfile
 error_check 'Untar of DAQ'
@@ -284,7 +286,6 @@ error_check 'Untar of DAQ'
 cd $daqver
 
 print_status "Configuring, making, compiling and linking DAQ libraries. This will take a moment or two.."
-
 autoreconf -f -i &>> $logfile
 error_check 'Autoreconf DAQ'
 
@@ -297,11 +298,10 @@ error_check 'Make DAQ'
 make install &>> $logfile
 error_check 'Installation of DAQ libraries'
 
-#seen some strange happenings where if this isn't symlinked or in /usr/lib, snort fails to find it and subsequently bails.
-
+# Ensure libsfbpf.so.0 is symlinked
 if [ ! -h /usr/lib/libsfbpf.so.0 ]; then
-print_status "Creating symlink for libsfbpf.so.0 on default ld library path.."
-ln -s /usr/local/lib/libsfbpf.so.0 /usr/lib/libsfbpf.so.0
+    print_status "Creating symlink for libsfbpf.so.0 on default ld library path.."
+    ln -s /usr/local/lib/libsfbpf.so.0 /usr/lib/libsfbpf.so.0
 fi
 
 cd /usr/src
@@ -310,9 +310,7 @@ cd /usr/src
 #This is where snort actually gets installed. We create the directory the user wants to install snort in (if it doesn't exist), Download, Unpack, build, compile and install.
 #Afterwards we create a snort system user to drop privs down to when snort is running, the snort group, and a /var/log/snort for writing unified 2 files.
 #The --prefix option is based on where the user wants to install snort, while --enable-sourcefire provides most of the Snort options users desire.
-
 print_status "Acquiring and unpacking $snortver to /usr/src.."
-
 wget https://www.snort.org/downloads/snort/$snorttar -O $snorttar &>> $logfile
 error_check 'Download of Snort'
 
@@ -325,7 +323,6 @@ dir_check $snort_basedir/lib
 cd $snortver
 
 print_status "configuring snort (options --prefix=$snort_basedir and --enable-sourcefire), making and installing. This will take a moment or two."
-
 ./configure --prefix=$snort_basedir --libdir=$snort_basedir/lib --enable-sourcefire &>> $logfile
 error_check 'Configure Snort'
 
@@ -338,7 +335,6 @@ error_check 'Installation of Snort'
 dir_check /var/log/snort
 
 print_status "Checking for snort user and group.."
-
 getent passwd snort &>> $logfile
 if [ $? -eq 0 ]; then
     print_notification "snort user exists. Verifying group exists.."
@@ -364,12 +360,10 @@ chown snort:snort /var/log/snort
 #This block of code gets very very hairy, very very fast.
 #1. Setup necessary directory structure for snort (make them if they don't exist)
 #2. Determine latest the last 4 versions of snort tarballs, and last 2 snort releases
-#3. Download a reference snort.conf from labs.snort.org for the current (if available) release or snort, or the one prior
-#4. Modify snort.conf as necessary, and generate some dummy files in place to ensure snort doesn't barf generate SO rule stub files.
+#3. Download a reference snort.conf from labs.snort 4. Modify snort.conf as necessary, and generate some dummy files in place to ensure snort doesn't barf generate SO rule stub files.
 #5. Grab pulled pork, the packages required to run it, and generate a skeleton pulledpork.conf (while leaving the original intact)
 #6. Grab rules via pulled pork. SHOULD support so rules, if the user has a VRT subscription for the current snort release OR the current snort release is more than 30 days old (at which point, the snort tarball release 30 days ago is made free, and the SO rules are compatible)
 #7. Replace dummy files, and copy gen-msp.map from snort tarball.
-
 dir_check $snort_basedir/etc
 dir_check $snort_basedir/so_rules
 dir_check $snort_basedir/rules
@@ -379,9 +373,7 @@ dir_check $snort_basedir/rules/iplists
 touch $snort_basedir/rules/iplists/IPRVersion.dat
 
 print_status "Attempting to download .conf file for $snortver.."
-
 wget https://www.snort.org/documents/$choice1conf -O $snort_basedir/etc/snort.conf --no-check-certificate &>> $logfile
-
 if [ $? != 0 ];then
     print_error "Attempt to download $snortver conf file from snort.org failed. attempting to download $choice2conf.."
     wget https://www.snort.org/documents/$choice2conf -O $snort_basedir/etc/snort.conf --no-check-certificate &>> $logfile
@@ -391,15 +383,12 @@ else
 fi
 
 #Trim up snort.conf as necessary to work properly. Snort is actually executed by pulled pork to dump the SO stub files for shared object rules.
-
 print_status "ldconfig processing and creation of whitelist/blacklist.rules files taking place."
-
 touch $snort_basedir/rules/white_list.rules
 touch $snort_basedir/rules/black_list.rules
 ldconfig
 
 print_status "Modifying snort.conf -- specifying unified 2 output, SO whitelist/blacklist and standard rule locations.."
-
 sed -i "s#dynamicpreprocessor directory /usr/local/lib/snort_dynamicpreprocessor#dynamicpreprocessor directory $snort_basedir/lib/snort_dynamicpreprocessor#" $snort_basedir/etc/snort.conf
 sed -i "s#dynamicengine /usr/local/lib/snort_dynamicengine/libsf_engine.so#dynamicengine $snort_basedir/lib/snort_dynamicengine/libsf_engine.so#" $snort_basedir/etc/snort.conf
 sed -i "s#dynamicdetection directory /usr/local/lib/snort_dynamicrules#dynamicdetection directory $snort_basedir/snort_dynamicrules#" $snort_basedir/etc/snort.conf
@@ -412,7 +401,6 @@ echo "include \$RULE_PATH/snort.rules" >> $snort_basedir/etc/snort.conf
 
 #making a copy of our fully configured snort.conf, and touching some files into existence, so snort doesn't barf when executed to generate the so rule stubs.
 #These are blank files (except unicode.map, which snort will NOT start without the real deal), but if they don't exist, snort barfs when pp uses it to generate SO stub files.
-
 touch $snort_basedir/etc/reference.config
 touch $snort_basedir/etc/classification.config
 cp /usr/src/$snortver/etc/unicode.map $snort_basedir/etc/unicode.map
@@ -422,30 +410,24 @@ touch $snort_basedir/rules/snort.rules
 print_good "snort.conf configured. location: $snort_basedir/etc/snort.conf"
 
 #Pulled Pork. Download, unpack, and configure.
-
 cd /usr/src
-
 if [ -d /usr/src/pulledpork ]; then
     rm -rf /usr/src/pulledpork
 fi
 
 print_status "Acquiring Pulled Pork.."
-
 git clone https://github.com/shirkdog/pulledpork.git &>> $logfile
 error_check 'Download of pulledpork'
 
 print_good "Pulledpork successfully installed to /usr/src."
-
 print_status "Generating pulledpork.conf."
-
 cd pulledpork/etc
 
 #Create a copy of the original conf file (in case the user needs it), ask the user for an oink code, then fill out a really stripped down pulledpork.conf file with only the lines needed to run the perl script
 cp pulledpork.conf pulledpork.conf.orig
 
 #Okay, so not only does the new filename format on snort.org for the snort tarballs allow three digits, pulledpork is expect 4 digits, separated by 3 periods. For example, If the current snort version is 2.9.11, you need to specify snort version 2.9.11.0 in pulledpork for it to figure out what version of snort you want to download rules for. So I made this little work-around: IF there are only two periods in the "snortver" variable, that means that I will need to add a trailing ".0" otherwise, pulledpork should be fine. Unfortunately, This value had to be stored in a new variable "ppsnortver" because other parts of the script rely on "snortver" variable not being modified from its original format to work properly.
-
-snortverSID=`echo $snortver | fgrep -o . | wc -l`
+snortverperiods=`echo $snortver | fgrep -o . | wc -l`
 if [ $snortverperiods -eq 2 ]; then
     ppsnortver=$snortver.0
 else
@@ -475,7 +457,6 @@ echo "version=0.7.4" >> pulledpork.tmp
 cp pulledpork.tmp pulledpork.conf
 
 #Run pulledpork. If the first rule download fails, we try again, and so on until there are no other snort rule tarballs to attempt to download.
-
 cd /usr/src/pulledpork
     
 print_status "Attempting to download rules for $ppsnortver.."
@@ -489,9 +470,7 @@ else
 fi
 
 ########################################
-
 #GRO and LRO are checksum offloading techniques that some network cards use to offload checking frame, packet and/or tcp header checksums and can lead to invalid checksums. Snort doesn't like packets with invalid checksums and will ignore them. These commands disable GRO and LRO.
-
 print_notification "Disabling offloading options on the sniffing interfaces.."
 ethtool -K $snort_iface_1 rx off &>> $logfile
 ethtool -K $snort_iface_1 tx off &>> $logfile
@@ -514,7 +493,6 @@ ethtool -K $snort_iface_2 lro off &>> $logfile
 #The year was 2020 in which systemd doing the one thing its actually pretty well designed for won me over and make me wave the white flag.
 #This portion of the script uses the full_autosnort.conf to reconfigure some stuff in the snortd.service file, then installs the script in /etc/systemd/system/snortd.service
 #I'd like to credit https://github.com/afpacket/snort-systemd/blob/master/snort.service with the majority of the work for updating my ages old init script to systemd.
-
 cd "$execdir"
 if [ -f /etc/systemd/system/snortd.service ]; then
     print_notification "Snortd init script already installed."
@@ -542,10 +520,8 @@ else
 fi
 
 ########################################
-
 print_status "Rebooting now.."
 init 6
 print_notification "The log file for autosnort is located at: $logfile" 
 print_good "We're all done here. Have a nice day."
-
 exit 0
