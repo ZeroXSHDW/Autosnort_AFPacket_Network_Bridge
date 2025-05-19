@@ -277,15 +277,29 @@ error_check 'Make DAQ'
 make install &>> $logfile
 error_check 'Installation of DAQ libraries'
 
-# Ensure DAQ pkg-config file is installed
+# Ensure DAQ pkg-config file is installed or created
 if [ -f libdaq.pc ]; then
     print_status "Installing DAQ pkg-config file..."
     sudo mkdir -p /usr/local/lib/pkgconfig
     sudo cp libdaq.pc /usr/local/lib/pkgconfig/
     error_check 'Installation of libdaq.pc'
 else
-    print_error "libdaq.pc not found in DAQ source directory. DAQ installation may be incomplete."
-    exit 1
+    print_notification "libdaq.pc not found in DAQ source directory. Generating manually..."
+    cat > libdaq.pc << EOL
+prefix=/usr/local
+exec_prefix=\${prefix}
+libdir=\${exec_prefix}/lib
+includedir=\${prefix}/include
+
+Name: libdaq
+Description: Data Acquisition library for Snort
+Version: 2.0.7
+Libs: -L\${libdir} -ldaq_static
+Cflags: -I\${includedir}
+EOL
+    sudo mkdir -p /usr/local/lib/pkgconfig
+    sudo mv libdaq.pc /usr/local/lib/pkgconfig/
+    error_check 'Generation and installation of libdaq.pc'
 fi
 
 # Ensure libsfbpf.so.0 is symlinked
@@ -348,9 +362,13 @@ if [ ! -f /usr/local/lib/libdaq.a ] || [ ! -f /usr/local/include/daq.h ]; then
     print_error "DAQ library or headers not found at /usr/local/lib/libdaq.a or /usr/local/include/daq.h. Ensure DAQ was installed correctly."
     exit 1
 fi
-# Check DAQ pkg-config file
+# Check DAQ and libpcap pkg-config files
 if [ ! -f /usr/local/lib/pkgconfig/libdaq.pc ]; then
     print_error "DAQ pkg-config file not found at /usr/local/lib/pkgconfig/libdaq.pc. Ensure DAQ was installed correctly."
+    exit 1
+fi
+if [ ! -f /usr/lib/pkgconfig/libpcap.pc ] && [ ! -f /usr/lib/x86_64-linux-gnu/pkgconfig/libpcap.pc ]; then
+    print_error "libpcap pkg-config file not found. Ensure libpcap-dev is installed."
     exit 1
 fi
 # Check compiler and tools
@@ -564,7 +582,7 @@ else
     sed -i "s#snort_iface2#$snort_iface_2#g" snortd_2
     cp snortd_2 /etc/systemd/system/snortd.service &>> $logfile
     chown root:root /etc/systemd/system/snortd.service &>> $logfile
-    chmod 700 /etc/systemd/system/snortd.service &>> $logfile
+    chmod 700 | /etc/systemd/system/snortd.service &>> $logfile
     systemctl daemon-reload &>> $logfile
     error_check 'snortd.service installation'
     print_notification "Location: /etc/systemd/system/snortd.service"
