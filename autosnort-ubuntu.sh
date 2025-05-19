@@ -270,6 +270,7 @@ error_check 'Autoreconf DAQ'
 ./configure &>> $logfile
 error_check 'Configure DAQ'
 
+print_status "Compiling DAQ with verbose output..."
 make V=1 &>> $logfile
 error_check 'Make DAQ'
 
@@ -328,17 +329,32 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 # Check DAQ installation
-if [ ! -f /usr/local/lib/libdaq.a ]; then
-    print_error "DAQ library not found at /usr/local/lib/libdaq.a. Ensure DAQ was installed correctly."
+if [ ! -f /usr/local/lib/libdaq.a ] || [ ! -f /usr/local/include/daq.h ]; then
+    print_error "DAQ library or headers not found at /usr/local/lib/libdaq.a or /usr/local/include/daq.h. Ensure DAQ was installed correctly."
+    exit 1
+fi
+# Check compiler and tools
+gcc --version &>> $logfile
+make --version &>> $logfile
+if [ $? -ne 0 ]; then
+    print_error "Compiler or make tool missing. Install gcc, g++, and make."
     exit 1
 fi
 # Set library paths
 export LD_LIBRARY_PATH=/usr/local/lib:/usr/lib:$LD_LIBRARY_PATH
 export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/lib/pkgconfig:$PKG_CONFIG_PATH
+print_notification "Library paths set: LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+print_notification "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
+# Verify pkg-config for libraries
+pkg-config --libs --cflags libdaq libpcap &>> $logfile
+if [ $? -ne 0 ]; then
+    print_error "pkg-config failed to find libdaq or libpcap. Ensure libraries are installed and paths are correct."
+    exit 1
+fi
 print_good "Build environment checks passed."
 
 print_status "Configuring snort (options --prefix=$snort_basedir and --enable-sourcefire), making and installing. This will take a moment or two."
-./configure --prefix=$snort_basedir --libdir=$snort_basedir/lib --enable-sourcefire &>> $logfile
+./configure --prefix=$snort_basedir --libdir=$snort_basedir/lib --enable-sourcefire LDFLAGS="-L/usr/local/lib" CFLAGS="-I/usr/local/include" &>> $logfile
 error_check 'Configure Snort'
 
 print_status "Compiling Snort with verbose output (this may take a while)..."
