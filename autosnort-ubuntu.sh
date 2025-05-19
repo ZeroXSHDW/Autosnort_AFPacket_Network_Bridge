@@ -164,9 +164,9 @@ fi
 ########################################
 #These packages are required at a minimum to build snort, the data acquisition (DAQ) libraries, and the pulledpork rule manager. 
 if [[ $release == "20."* ]]; then
-    print_status "Installing base packages: libdumbnet-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev.."
+    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev.."
     
-    declare -a packages=( libdumbnet-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev );
+    declare -a packages=( gcc g++ make libdumbnet-dev libdnet-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev );
     
     install_packages ${packages[@]}
 
@@ -193,9 +193,9 @@ else
     error_check 'Modification of /etc/apt/sources.list'
     print_notification 'This script assumes a default sources.list, and changes all the default repos to include universe. If you added any third-party sources, you will need to re-enter those manually from /etc/apt/sources.list.bak into /etc/apt/sources.list.'
     
-    print_status "Installing base packages: libdumbnet-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev.."
+    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev.."
     
-    declare -a packages=( libdumbnet-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev );
+    declare -a packages=( gcc g++ make libdumbnet-dev libdnet-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev );
     
     install_packages ${packages[@]}
 
@@ -270,7 +270,7 @@ error_check 'Autoreconf DAQ'
 ./configure &>> $logfile
 error_check 'Configure DAQ'
 
-make &>> $logfile
+make V=1 &>> $logfile
 error_check 'Make DAQ'
 
 make install &>> $logfile
@@ -320,11 +320,29 @@ dir_check $snort_basedir/lib
 
 cd $snortver
 
-print_status "configuring snort (options --prefix=$snort_basedir and --enable-sourcefire), making and installing. This will take a moment or two."
+print_status "Checking build environment before compiling Snort..."
+# Check disk space
+df -h /usr/src &>> $logfile
+if [ $? -ne 0 ]; then
+    print_error "Failed to check disk space. Ensure /usr/src has sufficient space."
+    exit 1
+fi
+# Check DAQ installation
+if [ ! -f /usr/local/lib/libdaq.a ]; then
+    print_error "DAQ library not found at /usr/local/lib/libdaq.a. Ensure DAQ was installed correctly."
+    exit 1
+fi
+# Set library paths
+export LD_LIBRARY_PATH=/usr/local/lib:/usr/lib:$LD_LIBRARY_PATH
+export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/lib/pkgconfig:$PKG_CONFIG_PATH
+print_good "Build environment checks passed."
+
+print_status "Configuring snort (options --prefix=$snort_basedir and --enable-sourcefire), making and installing. This will take a moment or two."
 ./configure --prefix=$snort_basedir --libdir=$snort_basedir/lib --enable-sourcefire &>> $logfile
 error_check 'Configure Snort'
 
-make &>> $logfile
+print_status "Compiling Snort with verbose output (this may take a while)..."
+make V=1 &>> $logfile
 error_check 'Make Snort'
 
 make install &>> $logfile
