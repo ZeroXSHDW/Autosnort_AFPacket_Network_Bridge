@@ -164,9 +164,9 @@ fi
 ########################################
 #These packages are required at a minimum to build snort, the data acquisition (DAQ) libraries, and the pulledpork rule manager. 
 if [[ $release == "20."* ]]; then
-    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev.."
+    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev.."
     
-    declare -a packages=( gcc g++ make libdumbnet-dev libdnet-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev );
+    declare -a packages=( gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev );
     
     install_packages ${packages[@]}
 
@@ -193,9 +193,9 @@ else
     error_check 'Modification of /etc/apt/sources.list'
     print_notification 'This script assumes a default sources.list, and changes all the default repos to include universe. If you added any third-party sources, you will need to re-enter those manually from /etc/apt/sources.list.bak into /etc/apt/sources.list.'
     
-    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev.."
+    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev.."
     
-    declare -a packages=( gcc g++ make libdumbnet-dev libdnet-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev );
+    declare -a packages=( gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev );
     
     install_packages ${packages[@]}
 
@@ -277,11 +277,26 @@ error_check 'Make DAQ'
 make install &>> $logfile
 error_check 'Installation of DAQ libraries'
 
+# Ensure DAQ pkg-config file is installed
+if [ -f libdaq.pc ]; then
+    print_status "Installing DAQ pkg-config file..."
+    sudo mkdir -p /usr/local/lib/pkgconfig
+    sudo cp libdaq.pc /usr/local/lib/pkgconfig/
+    error_check 'Installation of libdaq.pc'
+else
+    print_error "libdaq.pc not found in DAQ source directory. DAQ installation may be incomplete."
+    exit 1
+fi
+
 # Ensure libsfbpf.so.0 is symlinked
 if [ ! -h /usr/lib/libsfbpf.so.0 ]; then
     print_status "Creating symlink for libsfbpf.so.0 on default ld library path.."
     ln -s /usr/local/lib/libsfbpf.so.0 /usr/lib/libsfbpf.so.0
 fi
+
+# Update linker cache
+sudo ldconfig &>> $logfile
+error_check 'Update linker cache'
 
 cd /usr/src
 
@@ -333,6 +348,11 @@ if [ ! -f /usr/local/lib/libdaq.a ] || [ ! -f /usr/local/include/daq.h ]; then
     print_error "DAQ library or headers not found at /usr/local/lib/libdaq.a or /usr/local/include/daq.h. Ensure DAQ was installed correctly."
     exit 1
 fi
+# Check DAQ pkg-config file
+if [ ! -f /usr/local/lib/pkgconfig/libdaq.pc ]; then
+    print_error "DAQ pkg-config file not found at /usr/local/lib/pkgconfig/libdaq.pc. Ensure DAQ was installed correctly."
+    exit 1
+fi
 # Check compiler and tools
 gcc --version &>> $logfile
 make --version &>> $logfile
@@ -341,20 +361,21 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 # Set library paths
-export LD_LIBRARY_PATH=/usr/local/lib:/usr/lib:$LD_LIBRARY_PATH
-export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/lib/pkgconfig:$PKG_CONFIG_PATH
+export LD_LIBRARY_PATH=/usr/local/lib:/usr/lib:/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH
 print_notification "Library paths set: LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
 print_notification "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
 # Verify pkg-config for libraries
 pkg-config --libs --cflags libdaq libpcap &>> $logfile
 if [ $? -ne 0 ]; then
     print_error "pkg-config failed to find libdaq or libpcap. Ensure libraries are installed and paths are correct."
+    print_notification "Try manually installing libpcap-dev and re-running DAQ installation."
     exit 1
 fi
 print_good "Build environment checks passed."
 
 print_status "Configuring snort (options --prefix=$snort_basedir and --enable-sourcefire), making and installing. This will take a moment or two."
-./configure --prefix=$snort_basedir --libdir=$snort_basedir/lib --enable-sourcefire LDFLAGS="-L/usr/local/lib" CFLAGS="-I/usr/local/include" &>> $logfile
+./configure --prefix=$snort_basedir --libdir=$snort_basedir/lib --enable-sourcefire LDFLAGS="-L/usr/local/lib -L/usr/lib" CFLAGS="-I/usr/local/include -I/usr/include" &>> $logfile
 error_check 'Configure Snort'
 
 print_status "Compiling Snort with verbose output (this may take a while)..."
@@ -432,7 +453,7 @@ sed -i "s/include \$RULE\_PATH/#include \$RULE\_PATH/" $snort_basedir/etc/snort.
 echo "# unified snort.rules entry" >> $snort_basedir/etc/snort.conf
 echo "include \$RULE_PATH/snort.rules" >> $snort_basedir/etc/snort.conf
 
-#making a copy of our fully configured snort.conf, and touching some files into existence, so snort doesn't barf when executed to generate the so rule stubs.
+#making a copy of our fully configured snort.conf, and touching some files into existence, so snort doesn't barf when executed to generate the so rule stub files.
 #These are blank files (except unicode.map, which snort will NOT start without the real deal), but if they don't exist, snort barfs when pp uses it to generate SO stub files.
 touch $snort_basedir/etc/reference.config
 touch $snort_basedir/etc/classification.config
