@@ -212,28 +212,23 @@ if [ ! -h /usr/include/dnet.h ]; then
 fi
 
 ########################################
-# We download the index page from snort.org to get Snort version and snort.conf
-# DAQ version is hardcoded to daq-2.0.7.tar.gz based on known working URL
-print_status "Checking latest versions of Snort and Rules via snort.org..."
+# We download the index page from snort.org only for snort.conf
+# Snort and DAQ versions are hardcoded based on known working URLs
+print_status "Checking latest snort.conf versions via snort.org..."
 cd /tmp
-wget https://www.snort.org -O /tmp/snort &> $logfile
-error_check 'Download of snort.org index page'
-#changed the page we download to determine the latest .conf file available. use to go to www.snort.org/configurations, but this file doesn't seem to be kept up to date particularly well..
+# Download snort.org documents page for snort.conf versions
 wget https://www.snort.org/documents -O /tmp/snort_conf &> $logfile
 error_check 'Download of snort.conf examples page'
 
-#had to change the regex for snorttar -- used to be that the snort-x.x.x.x.tar.gz file would have exactly four digits (each x is one digit). Snort 2.9.11 has change that -- not only can new versions only have three digits, the minor version number is now in the double digits -- which is something I never encountered, so I never coded for it
-snorttar=`egrep -o "snort-([0-9]+\.?){3,}\.tar\.gz" /tmp/snort | head -1`
-snortver=`echo $snorttar | sed 's/.tar.gz//g'`
-
-# Hardcode DAQ version
+# Hardcode Snort and DAQ versions
+snorttar="snort-2.9.20.tar.gz"
+snortver="snort-2.9.20"
 daqtar="daq-2.0.7.tar.gz"
 daqver="daq-2.0.7"
 
-#had to change the regex for the conf file download choices to ensure we're pulling snort 2.x config files.
+# Regex for snort.conf download choices to ensure we're pulling snort 2.x config files
 choice1conf=`egrep -o "snort-20.*-conf" /tmp/snort_conf | sort -ru | head -1` #snort.conf download attempt 1
 choice2conf=`egrep -o "snort-20.*-conf" /tmp/snort_conf | sort -ru | head -2 | tail -1` #snort.conf download 
-rm /tmp/snort
 rm /tmp/snort_conf
 cd /usr/src
 
@@ -294,8 +289,28 @@ cd /usr/src
 #Afterwards we create a snort system user to drop privs down to when snort is running, the snort group, and a /var/log/snort for writing unified 2 files.
 #The --prefix option is based on where the user wants to install snort, while --enable-sourcefire provides most of the Snort options users desire.
 print_status "Acquiring and unpacking $snortver to /usr/src.."
-wget https://www.snort.org/downloads/snort/$snorttar -O $snorttar &>> $logfile
-error_check 'Download of Snort'
+
+# Log the exact URL for debugging
+print_notification "Attempting to download Snort from: https://www.snort.org/downloads/snort/$snorttar"
+
+# Try downloading the Snort tarball with retries
+for attempt in {1..3}; do
+    print_status "Download attempt $attempt for $snorttar..."
+    wget --tries=2 --timeout=10 https://www.snort.org/downloads/snort/$snorttar -O $snorttar &>> $logfile
+    if [ $? -eq 0 ]; then
+        print_good "Successfully downloaded $snorttar."
+        break
+    else
+        print_notification "Attempt $attempt failed for $snorttar."
+        if [ $attempt -eq 3 ]; then
+            print_error "Failed to download $snorttar after 3 attempts. Check $logfile for details."
+            print_notification "Possible reasons: Network issues, unavailable file, or snort.org server restrictions."
+            print_notification "Manual workaround: Download https://www.snort.org/downloads/snort/$snorttar, place it in /usr/src as $snorttar, then re-run the script."
+            exit 1
+        fi
+        sleep 5
+    fi
+done
 
 tar -xzvf $snorttar &>> $logfile
 error_check 'Untar of Snort'
@@ -468,7 +483,7 @@ ethtool -K $snort_iface_2 rx off &>> $logfile
 ethtool -K $snort_iface_2 tx off &>> $logfile
 ethtool -K $snort_iface_2 sg off &>> $logfile
 ethtool -K $snort_iface_2 tso off &>> $logfile
-ethtool - personally $snort_iface_2 ufo off &>> $logfile
+ethtool -K $snort_iface_2 ufo off &>> $logfile
 ethtool -K $snort_iface_2 gso off &>> $logfile
 ethtool -K $snort_iface_2 gro off &>> $logfile
 ethtool -K $snort_iface_2 lro off &>> $logfile 
@@ -482,7 +497,7 @@ if [ -f /etc/systemd/system/snortd.service ]; then
     print_notification "Snortd init script already installed."
 else
     if [ ! -f "$execdir"/snortd.service ]; then
-        print_error" Unable to find $execdir/snortd.service. Please ensure  the snortd.service file is there and try again."
+        print_error "Unable to find $execdir/snortd.service. Please ensure the snortd.service file is there and try again."
         exit 1
     else
         print_good "Found snortd systemd service script. Configuring.."
