@@ -393,7 +393,7 @@ fi
 print_good "Build environment checks passed."
 
 print_status "Configuring snort (options --prefix=$snort_basedir and --enable-sourcefire), making and installing. This will take a moment or two."
-./configure --prefix=$snort_basedir --libdir=$snort_basedir/lib --enable-sourcefire LDFLAGS="-L/usr/local/lib -L/usr/lib" CFLAGS="-I/usr/local/include -I/usr/include" &>> $logfile
+./configure --prefix=$snort_basedir --enable-optimizations --includedir=/usr/include/ntirpc/ --libdir=$snort_basedir/lib --enable-sourcefire LDFLAGS="-L/usr/local/lib -L/usr/lib" CFLAGS="-I/usr/local/include -I/usr/include" &>> $logfile
 error_check 'Configure Snort'
 
 print_status "Compiling Snort with verbose output (this may take a while)..."
