@@ -60,7 +60,7 @@ function pp_postprocessing()
 {
     print_good "Rules processed successfully. Rules located in $snort_basedir/rules."
     print_notification "Pulledpork is located in /usr/src/pulledpork."
-    print_notification "By default, Autosnort runs Pulledpork with the Security over Connectivity ruleset."
+    print_notification "By default, Autosnort runs PulledPork with the Security over Connectivity ruleset."
     print_notification "If you want to change how PulledPork operates and/or what rules get enabled/disabled, check out the /usr/src/pulledpork/etc directory and the .conf files contained therein."
 
     # Clean up dummy files, keeping snort.conf and sid-msg.map.
@@ -153,7 +153,7 @@ fi
 
 ########################################
 # Install required packages for Snort, DAQ, and PulledPork.
-# MODIFICATION: Added libc6-dev to both Ubuntu 18.04 and 20.04 package lists to provide rpc.h.
+# Added libc6-dev to provide rpc.h for sp_rpc_check.c.
 if [[ $release == "20."* ]]; then
     print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev.."
     
@@ -325,7 +325,7 @@ done
 tar -xzvf $snorttar &>> $logfile
 error_check 'Untar of Snort'
 
-# MODIFICATION: Verify sp_rpc_check.c exists to ensure tarball integrity.
+# Verify sp_rpc_check.c exists to ensure tarball integrity.
 if [ ! -f /usr/src/$snortver/src/detection-plugins/sp_rpc_check.c ]; then
     print_error "sp_rpc_check.c not found in /usr/src/$snortver/src/detection-plugins. The Snort tarball may be corrupted."
     print_notification "Please re-download https://www.snort.org/downloads/snort/$snorttar and re-run the script."
@@ -377,17 +377,33 @@ if [ $? -ne 0 ]; then
     print_notification "Try manually installing libpcap-dev and re-running DAQ installation."
     exit 1
 fi
-# MODIFICATION: Verify rpc.h exists for sp_rpc_check.c.
-if [ ! -f /usr/include/rpc/rpc.h ]; then
-    print_error "rpc.h not found at /usr/include/rpc/rpc.h. Ensure libc6-dev is installed."
-    exit 1
+# Check for rpc.h required by sp_rpc_check.c.
+print_status "Checking for rpc.h required by sp_rpc_check.c..."
+rpc_h_path=$(find /usr/include -name rpc.h 2>/dev/null | grep rpc/rpc.h | head -1)
+if [ -z "$rpc_h_path" ]; then
+    print_notification "rpc.h not found. Attempting to reinstall libc6-dev..."
+    apt-get install -y libc6-dev &>> $logfile
+    error_check 'Reinstallation of libc6-dev'
+    rpc_h_path=$(find /usr/include -name rpc.h 2>/dev/null | grep rpc/rpc.h | head -1)
+    if [ -z "$rpc_h_path" ]; then
+        print_error "rpc.h still not found after reinstalling libc6-dev. Please manually install libc6-dev and verify /usr/include/rpc/rpc.h exists."
+        exit 1
+    fi
+fi
+print_good "rpc.h found at $rpc_h_path"
+# Add rpc.h path to CFLAGS if not in /usr/include/rpc/rpc.h.
+rpc_h_dir=$(dirname $(dirname $rpc_h_path))
+if [ "$rpc_h_dir" != "/usr/include" ]; then
+    print_notification "rpc.h located in non-standard directory ($rpc_h_dir). Adding to CFLAGS..."
+    extra_cflags="-I$rpc_h_dir"
+else
+    extra_cflags=""
 fi
 print_good "Build environment checks passed."
 
 print_status "Configuring Snort (options --prefix=$snort_basedir and --enable-sourcefire), making and installing. This will take a moment or two."
-# MODIFICATION: Removed incorrect --includedir=/usr/include/ntirpc/, adjusted CFLAGS to ensure /usr/include for rpc.h.
 ./configure --prefix=$snort_basedir --libdir=$snort_basedir/lib --enable-sourcefire \
-    CFLAGS="-I/usr/include -I/usr/local/include" LDFLAGS="-L/usr/local/lib -L/usr/lib" &>> $logfile
+    CFLAGS="-I/usr/include -I/usr/local/include $extra_cflags" LDFLAGS="-L/usr/local/lib -L/usr/lib" &>> $logfile
 error_check 'Configure Snort'
 
 print_status "Compiling Snort with verbose output (this may take a while)..."
@@ -565,7 +581,6 @@ else
     sed -i "s#snort_iface2#$snort_iface_2#g" snortd_2
     cp snortd_2 /etc/systemd/system/snortd.service &>> $logfile
     chown root:root /etc/systemd/system/snortd.service &>> $logfile
-    # MODIFICATION: Fixed chmod syntax.
     chmod 700 /etc/systemd/system/snortd.service &>> $logfile
     systemctl daemon-reload &>> $logfile
     error_check 'snortd.service installation'
