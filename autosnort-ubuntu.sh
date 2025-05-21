@@ -1,7 +1,7 @@
 #!/bin/bash
 # Autosnort script for Ubuntu 18.04+
 # Please note that this version of the script is specifically made available for students of Building Virtual Labs training on networkdefense.io, as well as the book, Building Virtual Machine Labs: A Hands-On Guide
-# This script will configure Snort and PulledPork with enhanced logging and retry logic for rule downloads
+# This script will configure Snort and PulledPork with enhanced logging, retry logic, and debugging for rule downloads
 
 # Logging setup. Uses FIFO/pipe to log all output to a file for troubleshooting.
 logfile=/var/log/autosnort_install.log
@@ -10,27 +10,30 @@ tee < ${logfile}.pipe $logfile &
 exec &> ${logfile}.pipe
 rm ${logfile}.pipe
 
+# Add timestamp to log for debugging.
+echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Starting Autosnort script" >> $logfile
+
 ########################################
 
 # Metasploit-like print statements for status, success, error, and notification messages.
 function print_status()
 {
-    echo -e "\x1B[01;34m[*]\x1B[0m $1" | tee -a $logfile
+    echo -e "[$(date '+%Y-%m-%d %H:%M:%S %Z')] \x1B[01;34m[*]\x1B[0m $1" | tee -a $logfile
 }
 
 function print_good()
 {
-    echo -e "\x1B[01;32m[*]\x1B[0m $1" | tee -a $logfile
+    echo -e "[$(date '+%Y-%m-%d %H:%M:%S %Z')] \x1B[01;32m[*]\x1B[0m $1" | tee -a $logfile
 }
 
 function print_error()
 {
-    echo -e "\x1B[01;31m[*]\x1B[0m $1" | tee -a $logfile
+    echo -e "[$(date '+%Y-%m-%d %H:%M:%S %Z')] \x1B[01;31m[*]\x1B[0m $1" | tee -a $logfile
 }
 
 function print_notification()
 {
-    echo -e "\x1B[01;33m[*]\x1B[0m $1" | tee -a $logfile
+    echo -e "[$(date '+%Y-%m-%d %H:%M:%S %Z')] \x1B[01;33m[*]\x1B[0m $1" | tee -a $logfile
 }
 
 ########################################
@@ -41,7 +44,7 @@ function error_check()
     if [ $? -eq 0 ]; then
         print_good "$1 successfully completed."
     else
-        print_error "$1 failed. Please check $logfile for more details, or contact deusexmachina667 at gmail dot com for more assistance."
+        print_error "$1 failed with exit code $?. Please check $logfile for more details, or contact deusexmachina667 at gmail dot com for more assistance."
         exit 1
     fi
 }
@@ -50,8 +53,9 @@ function error_check()
 # Package installation function.
 function install_packages()
 {
+    print_status "Updating package lists and installing packages: ${@}"
     apt-get update &>> $logfile && apt-get install -y "${@}" &>> $logfile
-    error_check 'Package installation'
+    error_check "Package installation for ${@}"
 }
 
 ########################################
@@ -119,14 +123,14 @@ if [ ! -f "$execdir/full_autosnort.conf" ]; then
     print_error "full_autosnort.conf was NOT found in $execdir. The script relies HEAVILY on this config file. Please make sure it is in the same directory you are executing the autosnort-ubuntu script from!"
     exit 1
 else
-    print_good "Found config file."
+    print_good "Found config file at $execdir/full_autosnort.conf."
 fi
 
 source "$execdir/full_autosnort.conf"
 
 print_status "Checking for root privs.."
 if [ "$(whoami)" != "root" ]; then
-    print_error "This script must be ran with sudo or root privileges."
+    print_error "This script must be run with sudo or root privileges."
     exit 1
 else
     print_good "We are root."
@@ -154,25 +158,25 @@ error_check 'System updates'
 print_status "OS Version Check.."
 release=$(lsb_release -r | awk '{print $2}')
 if [[ $release == "18."* || $release == "20."* ]]; then
-    print_good "OS is Ubuntu. Good to go."
+    print_good "OS is Ubuntu $release. Good to go."
     if [[ $release == "18."* ]]; then
         distro="Ubuntu-18-04"
     else
         distro="Ubuntu-20-04"
     fi
 else
-    print_notification "This is not Ubuntu 18.x or 20.x, this script has NOT been tested on other platforms."
+    print_notification "This is not Ubuntu 18.x or 20.x (detected $release), this script has NOT been tested on other platforms."
     print_notification "You continue at your own risk! (Please report your successes or failures!)"
     distro="Ubuntu-18-04" # Fallback for non-standard Ubuntu versions
 fi
 
 ########################################
 # Install required packages for Snort, DAQ, and PulledPork.
-# Includes libc6-dev, rpcsvc-proto, and libtirpc-dev for rpc.h.
+# Includes libc6-dev, rpcsvc-proto, libtirpc-dev for rpc.h, and Perl modules for PulledPork.
 if [[ $release == "20."* ]]; then
-    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev.."
+    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev libarchive-zip-perl libcrypt-ssleay-perl.."
     
-    declare -a packages=(gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev)
+    declare -a packages=(gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev libarchive-zip-perl libcrypt-ssleay-perl)
     
     install_packages "${packages[@]}"
 
@@ -198,9 +202,9 @@ else
     error_check 'Modification of /etc/apt/sources.list'
     print_notification 'This script assumes a default sources.list and changes all default repos to include universe. If you added third-party sources, re-enter them manually from /etc/apt/sources.list.bak into /etc/apt/sources.list.'
     
-    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev.."
+    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev libarchive-zip-perl libcrypt-ssleay-perl.."
     
-    declare -a packages=(gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev)
+    declare -a packages=(gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev libarchive-zip-perl libcrypt-ssleay-perl)
     
     install_packages "${packages[@]}"
 
@@ -521,12 +525,45 @@ print_good "snort.conf configured. Location: $snort_basedir/etc/snort.conf"
 # Install PulledPork.
 cd /usr/src
 if [ -d /usr/src/pulledpork ]; then
+    print_notification "Removing existing PulledPork directory to ensure fresh clone.."
     rm -rf /usr/src/pulledpork
 fi
 
 print_status "Acquiring PulledPork (latest version from GitHub).."
 git clone https://github.com/shirkdog/pulledpork.git &>> $logfile
 error_check 'Download of PulledPork'
+
+# Verify PulledPork script existence and permissions.
+if [ ! -f /usr/src/pulledpork/pulledpork.pl ]; then
+    print_error "pulledpork.pl not found at /usr/src/pulledpork/pulledpork.pl. Git clone may have failed."
+    exit 1
+fi
+chmod +x /usr/src/pulledpork/pulledpork.pl &>> $logfile
+error_check 'Setting executable permissions for pulledpork.pl'
+
+# Verify Perl and required modules.
+print_status "Verifying Perl and required modules for PulledPork.."
+which perl &>> $logfile
+if [ $? -ne 0 ]; then
+    print_error "Perl not found. Install perl package."
+    exit 1
+fi
+perl -MLWP::UserAgent -e 'exit 0' &>> $logfile
+if [ $? -ne 0 ]; then
+    print_error "Perl module LWP::UserAgent not found. Install libwww-perl."
+    exit 1
+fi
+perl -MArchive::Tar -e 'exit 0' &>> $logfile
+if [ $? -ne 0 ]; then
+    print_error "Perl module Archive::Tar not found. Install libarchive-zip-perl."
+    exit 1
+fi
+perl -MCrypt::SSLeay -e 'exit 0' &>> $logfile
+if [ $? -ne 0 ]; then
+    print_error "Perl module Crypt::SSLeay not found. Install libcrypt-ssleay-perl."
+    exit 1
+fi
+print_good "Perl and required modules verified."
 
 # Verify PulledPork version.
 pp_version=$(/usr/src/pulledpork/pulledpork.pl -V 2>/dev/null | grep -oP '\d+\.\d+\.\d+' || echo "0.8.0")
@@ -620,17 +657,26 @@ while [ $attempt -le $max_attempts ]; do
         break
     else
         print_notification "Rule download failed on attempt $attempt with exit code $pp_status."
+        if [ $pp_status -eq 255 ]; then
+            print_error "Exit code 255 indicates a critical failure (e.g., Perl error, missing module, or script not executable)."
+            print_notification "Debugging steps:"
+            print_notification "- Verify Perl: which perl"
+            print_notification "- Check script permissions: ls -l /usr/src/pulledpork/pulledpork.pl"
+            print_notification "- Test script manually: perl /usr/src/pulledpork/pulledpork.pl -V"
+            print_notification "- Check Perl modules: perl -MLWP::UserAgent -e 'exit 0'"
+        fi
         if [ $attempt -lt $max_attempts ]; then
             print_notification "Retrying in 15 seconds..."
             sleep 15
         else
-            print_error "Rule download failed after $max_attempts attempts. Check $logfile for details."
+            print_error "Rule download failed after $max_attempts attempts with exit code $pp_status. Check $logfile for details."
             print_notification "Possible causes:"
             print_notification "- Invalid oinkcode: Verify $o_code at https://www.snort.org/users/sign_in."
             print_notification "- Network issues: Ensure connectivity to www.snort.org and talosintelligence.com."
             print_notification "- Configuration error: Check /usr/src/pulledpork/etc/pulledpork.conf."
+            print_notification "- Missing Perl modules: Install libwww-perl, libarchive-zip-perl, libcrypt-ssleay-perl."
             print_notification "- Proxy settings: Set HTTP_PROXY and HTTPS_PROXY if needed."
-            print_notification "Run manually to debug: sudo /usr/src/pulledpork/pulledpork.pl -c /usr/src/pulledpork/etc/pulledpork.conf -vv"
+            print_notification "Run manually to debug: sudo perl /usr/src/pulledpork/pulledpork.pl -c /usr/src/pulledpork/etc/pulledpork.conf -vv"
             exit 1
         fi
     fi
