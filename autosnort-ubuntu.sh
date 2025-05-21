@@ -3,6 +3,7 @@
 # Please note that this version of the script is specifically made available for students of Building Virtual Labs training on networkdefense.io, as well as the book, Building Virtual Machine Labs: A Hands-On Guide
 # This script configures Snort and PulledPork with enhanced logging and debugging for rule downloads, targeting PulledPork 0.8.0
 # Modified to enhance verification of Perl modules (libwww-perl, libarchive-zip-perl, libcrypt-ssleay-perl, liblwp-protocol-https-perl)
+# PulledPork section reverted to original code from autosnort-ubuntu-AVATAR-orig.sh for version 0.8.0
 
 # Logging setup. Uses FIFO/pipe to log all output to a file for troubleshooting.
 logfile=/var/log/autosnort_install.log
@@ -531,18 +532,6 @@ if [ -d /usr/src/pulledpork ]; then
     rm -rf /usr/src/pulledpork
 fi
 
-print_status "Acquiring PulledPork (latest version from GitHub).."
-git clone https://github.com/shirkdog/pulledpork.git &>> $logfile
-error_check 'Download of PulledPork'
-
-# Verify PulledPork script existence and permissions.
-if [ ! -f /usr/src/pulledpork/pulledpork.pl ]; then
-    print_error "pulledpork.pl not found at /usr/src/pulledpork/pulledpork.pl. Git clone may have failed."
-    exit 1
-fi
-chmod +x /usr/src/pulledpork/pulledpork.pl &>> $logfile
-error_check 'Setting executable permissions for pulledpork.pl'
-
 # Verify Perl and required modules.
 print_status "Verifying Perl and required modules for PulledPork.."
 which perl &>> $logfile
@@ -584,20 +573,21 @@ for module in "${!module_to_package[@]}"; do
     fi
 done
 
-# Verify PulledPork version.
-pp_version=$(/usr/src/pulledpork/pulledpork.pl -V 2>/dev/null | grep -oP '\d+\.\d+\.\d+' || echo "0.8.0")
-print_good "PulledPork version $pp_version cloned successfully."
+print_status "Acquiring Pulled Pork.."
+git clone https://github.com/shirkdog/pulledpork.git &>> $logfile
+error_check 'Download of pulledpork'
 
-print_good "PulledPork successfully installed to /usr/src."
-print_status "Generating pulledpork.conf for version $pp_version."
+print_good "Pulledpork successfully installed to /usr/src."
+
+print_status "Generating pulledpork.conf."
 cd pulledpork/etc
 
-# Create a copy of the original conf file.
+# Create a copy of the original conf file (in case the user needs it).
 cp pulledpork.conf pulledpork.conf.orig &>> $logfile
 error_check 'Backup of pulledpork.conf'
 
 # Adjust Snort version for PulledPork (expects 4-digit version, e.g., 2.9.20.0).
-snortverperiods=$(echo $snortver | grep -o '\.' | wc -l)
+snortverperiods=$(echo $snortver | fgrep -o . | wc -l)
 if [ $snortverperiods -eq 2 ]; then
     ppsnortver=$snortver.0
 else
@@ -605,32 +595,30 @@ else
 fi
 
 # Generate pulledpork.conf compatible with PulledPork 0.8.0.
-cat > pulledpork.tmp << EOL
-# PulledPork configuration for version 0.8.0
-rule_url=https://www.snort.org/downloads/community/community-rules.tar.gz|community-rules.tar.gz|Community
-rule_url=https://snort.org/downloads/community/opensource.gz|opensource.gz|opensource
-rule_url=https://www.snort.org/downloads/registered/snortrules-snapshot-2983.tar.gz|snortrules-snapshot.tar.gz|$o_code
-blocklist=http://talosintelligence.com/feeds/ip-filter.blf|IPBLACKLIST|open
-ignore=deleted.rules,experimental.rules,local.rules
-temp_path=/tmp
-rule_path=$snort_basedir/rules/snort.rules
-local_rules=$snort_basedir/rules/local.rules
-sid_msg=$snort_basedir/etc/sid-msg.map
-sid_msg_version=2
-sid_changelog=/var/log/sid_changes.log
-sorule_path=$snort_basedir/snort_dynamicrules/
-snort_path=$snort_basedir/bin/snort
-snort_version=$(echo $ppsnortver | cut -d'-' -f2)
-distro=$distro
-config_path=$snort_basedir/etc/snort.conf
-blocklist=$snort_basedir/rules/black_list.rules
-IPRVersion=$snort_basedir/rules/iplists
-ips_policy=security
-EOL
-cp pulledpork.tmp pulledpork.conf
+echo "rule_url=https://www.snort.org/reg-rules/|snortrules-snapshot.tar.gz|$o_code" > pulledpork.tmp
+echo "rule_url=https://snort.org/downloads/community/|opensource.gz|Opensource" >> pulledpork.tmp
+echo "rule_url=https://snort.org/downloads/community/|community-rules.tar.gz|Community" >> pulledpork.tmp
+echo "rule_url=http://talosintel.com/feeds/ip-filter.blf|IPBLACKLIST|open" >> pulledpork.tmp
+echo "ignore=deleted.rules,experimental.rules,local.rules" >> pulledpork.tmp
+echo "temp_path=/tmp" >> pulledpork.tmp
+echo "rule_path=$snort_basedir/rules/snort.rules" >> pulledpork.tmp
+echo "local_rules=$snort_basedir/rules/local.rules" >> pulledpork.tmp
+echo "sid_msg=$snort_basedir/etc/sid-msg.map" >> pulledpork.tmp
+echo "sid_msg_version=1" >> pulledpork.tmp
+echo "sid_changelog=/var/log/sid_changes.log" >> pulledpork.tmp
+echo "sorule_path=$snort_basedir/snort_dynamicrules/" >> pulledpork.tmp
+echo "snort_path=$snort_basedir/bin/snort" >> pulledpork.tmp
+echo "snort_version=$(echo $ppsnortver | cut -d'-' -f2)" >> pulledpork.tmp
+echo "distro=$distro" >> pulledpork.tmp
+echo "config_path=$snort_basedir/etc/snort.conf" >> pulledpork.tmp
+echo "black_list=$snort_basedir/rules/black_list.rules" >> pulledpork.tmp
+echo "IPRVersion=$snort_basedir/rules/iplists" >> pulledpork.tmp
+echo "ips_policy=security" >> pulledpork.tmp
+echo "version=0.8.0" >> pulledpork.tmp
+cp pulledpork.tmp pulledpork.conf &>> $logfile
 error_check 'Generation of pulledpork.conf'
 
-# Validate pulledpork.conf existence, readability, and permissions.
+# Verify pulledpork.conf existence, readability, and permissions.
 if [ ! -f /usr/src/pulledpork/etc/pulledpork.conf ]; then
     print_error "pulledpork.conf not found at /usr/src/pulledpork/etc/pulledpork.conf."
     exit 1
@@ -641,85 +629,18 @@ if [ ! -r /usr/src/pulledpork/etc/pulledpork.conf ]; then
 fi
 chmod 644 /usr/src/pulledpork/etc/pulledpork.conf &>> $logfile
 error_check 'Setting permissions for pulledpork.conf'
-print_good "pulledpork.conf generated and validated successfully."
 
-# Check disk space for temp and rules directories.
-print_status "Checking disk space for /tmp and $snort_basedir/rules..."
-df -h /tmp $snort_basedir &>> $logfile
-if [ $? -ne 0 ]; then
-    print_error "Failed to check disk space. Ensure /tmp and $snort_basedir have sufficient space."
+# Run PulledPork.
+cd /usr/src/pulledpork
+print_status "Attempting to download rules for $ppsnortver.."
+print_notification "If this hangs, please make sure you set the HTTP_PROXY, http_proxy, HTTPS_PROXY, and https_proxy variables as required!"
+perl pulledpork.pl -W -vv -P -c /usr/src/pulledpork/etc/pulledpork.conf &>> $logfile
+if [ $? == 0 ]; then
+    pp_postprocessing
+else
+    print_error "Rule download for $ppsnortver has failed. Check $logfile, Troubleshoot your connectivity issues to snort.org, and ensure you wait a minimum of 15 minutes before trying again."
     exit 1
 fi
-
-# Test network connectivity to rule URLs.
-print_status "Testing network connectivity to rule download URLs..."
-ping -c 2 www.snort.org &>> $logfile
-if [ $? -eq 0 ]; then
-    print_good "Network connectivity to www.snort.org is good."
-else
-    print_notification "Warning: Cannot ping www.snort.org. This may cause rule download issues."
-fi
-curl -s -I https://www.snort.org/downloads/registered/snortrules-snapshot-2983.tar.gz?oinkcode=$o_code &>> $logfile
-if [ $? -eq 0 ]; then
-    print_good "Oinkcode appears valid for Snort registered rules."
-else
-    print_notification "Warning: Oinkcode validation failed or network issue detected for Snort rules URL."
-fi
-ping -c 2 talosintelligence.com &>> $logfile
-if [ $? -eq 0 ]; then
-    print_good "Network connectivity to talosintelligence.com is good."
-else
-    print_notification "Warning: Cannot ping talosintelligence.com. This may cause blocklist download issues."
-fi
-
-# Enable bash debugging for PulledPork execution.
-set -x
-
-# Run PulledPork with retries.
-max_attempts=3
-attempt=1
-while [ $attempt -le $max_attempts ]; do
-    print_status "Attempting to download rules for $ppsnortver using PulledPork $pp_version (Attempt $attempt/$max_attempts).."
-    print_notification "Running: perl /usr/src/pulledpork/pulledpork.pl -W -vv -P -c /usr/src/pulledpork/etc/pulledpork.conf"
-    perl /usr/src/pulledpork/pulledpork.pl -W -vv -P -c /usr/src/pulledpork/etc/pulledpork.conf 2>&1 | tee -a $logfile
-    pp_status=${PIPESTATUS[0]}
-    if [ $pp_status -eq 0 ]; then
-        print_good "Rule download successful on attempt $attempt."
-        pp_postprocessing
-        break
-    else
-        print_notification "Rule download failed on attempt $attempt with exit code $pp_status."
-        if [ $pp_status -eq 255 ]; then
-            print_error "Exit code 255 indicates a critical failure at /usr/src/pulledpork/pulledpork.pl line 1820."
-            print_notification "Debugging steps:"
-            print_notification "- Verify Perl: which perl"
-            print_notification "- Check script permissions: ls -l /usr/src/pulledpork/pulledpork.pl"
-            print_notification "- Test script manually: perl /usr/src/pulledpork/pulledpork.pl -V"
-            print_notification "- Check Perl modules: perl -MLWP::UserAgent -e 'exit 0'; perl -MArchive::Tar -e 'exit 0'; perl -MCrypt::SSLeay -e 'exit 0'; perl -MLWP::Protocol::https -e 'exit 0'"
-            print_notification "- Verify oinkcode: curl -s -I https://www.snort.org/downloads/registered/snortrules-snapshot-2983.tar.gz?oinkcode=$o_code"
-            print_notification "- Check line 1820: head -n 1820 /usr/src/pulledpork/pulledpork.pl | tail -n 10"
-        fi
-        if [ $attempt -lt $max_attempts ]; then
-            print_notification "Retrying in 15 seconds..."
-            sleep 15
-        else
-            print_error "Rule download failed after $max_attempts attempts with exit code $pp_status. Check $logfile for details."
-            print_notification "Possible causes:"
-            print_notification "- Invalid oinkcode: Verify $o_code at https://www.snort.org/users/sign_in."
-            print_notification "- Network issues: Ensure connectivity to www.snort.org and talosintelligence.com."
-            print_notification "- Configuration error: Check /usr/src/pulledpork/etc/pulledpork.conf."
-            print_notification "- Missing Perl modules: Install libwww-perl, libarchive-zip-perl, libcrypt-ssleay-perl, liblwp-protocol-https-perl."
-            print_notification "- File/Disk space: df -h /tmp $snort_basedir"
-            print_notification "- Proxy settings: Set HTTP_PROXY and HTTPS_PROXY if needed."
-            print_notification "Run manually to debug: sudo perl /usr/src/pulledpork/pulledpork.pl -c /usr/src/pulledpork/etc/pulledpork.conf -vv"
-            exit 1
-        fi
-    fi
-    ((attempt++))
-done
-
-# Disable bash debugging.
-set +x
 
 ########################################
 # Disable network offloading options.
@@ -730,7 +651,7 @@ ethtool -K $snort_iface_1 sg off &>> $logfile
 ethtool -K $snort_iface_1 tso off &>> $logfile
 ethtool -K $snort_iface_1 ufo off &>> $logfile
 ethtool -K $snort_iface_1 gso off &>> $logfile
-ethtool -K $snort_iface_1 gro off &>> $logfile
+etthtool -K $snort_iface_1 gro off &>> $logfile
 ethtool -K $snort_iface_1 lro off &>> $logfile
 ethtool -K $snort_iface_2 rx off &>> $logfile
 ethtool -K $snort_iface_2 tx off &>> $logfile
