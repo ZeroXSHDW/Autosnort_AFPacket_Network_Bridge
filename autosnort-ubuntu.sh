@@ -2,6 +2,7 @@
 # Autosnort script for Ubuntu 18.04+
 # Please note that this version of the script is specifically made available for students of Building Virtual Labs training on networkdefense.io, as well as the book, Building Virtual Machine Labs: A Hands-On Guide
 # This script configures Snort and PulledPork with enhanced logging and debugging for rule downloads, targeting PulledPork 0.8.0
+# Modified to enhance verification of Perl modules (libwww-perl, libarchive-zip-perl, libcrypt-ssleay-perl, liblwp-protocol-https-perl)
 
 # Logging setup. Uses FIFO/pipe to log all output to a file for troubleshooting.
 logfile=/var/log/autosnort_install.log
@@ -546,30 +547,42 @@ error_check 'Setting executable permissions for pulledpork.pl'
 print_status "Verifying Perl and required modules for PulledPork.."
 which perl &>> $logfile
 if [ $? -ne 0 ]; then
-    print_error "Perl not found. Install perl package."
+    print_error "Perl not found. Install perl package with: sudo apt-get install perl"
     exit 1
 fi
-perl -MLWP::UserAgent -e 'exit 0' &>> $logfile
-if [ $? -ne 0 ]; then
-    print_error "Perl module LWP::UserAgent not found. Install libwww-perl."
-    exit 1
-fi
-perl -MArchive::Tar -e 'exit 0' &>> $logfile
-if [ $? -ne 0 ]; then
-    print_error "Perl module Archive::Tar not found. Install libarchive-zip-perl."
-    exit 1
-fi
-perl -MCrypt::SSLeay -e 'exit 0' &>> $logfile
-if [ $? -ne 0 ]; then
-    print_error "Perl module Crypt::SSLeay not found. Install libcrypt-ssleay-perl."
-    exit 1
-fi
-perl -MLWP::Protocol::https -e 'exit 0' &>> $logfile
-if [ $? -ne 0 ]; then
-    print_error "Perl module LWP::Protocol::https not found. Install liblwp-protocol-https-perl."
-    exit 1
-fi
-print_good "Perl and required modules verified."
+
+# Define required Perl modules and their corresponding packages
+declare -A module_to_package=(
+    ["LWP::UserAgent"]="libwww-perl"
+    ["Archive::Tar"]="libarchive-zip-perl"
+    ["Crypt::SSLeay"]="libcrypt-ssleay-perl"
+    ["LWP::Protocol::https"]="liblwp-protocol-https-perl"
+)
+
+# Check each module and attempt reinstallation if missing
+for module in "${!module_to_package[@]}"; do
+    print_status "Checking Perl module $module..."
+    perl -M"$module" -e 'exit 0' &>> $logfile
+    if [ $? -ne 0 ]; then
+        print_notification "Perl module $module not found. Attempting to install ${module_to_package[$module]}..."
+        apt-get install -y ${module_to_package[$module]} &>> $logfile
+        if [ $? -ne 0 ]; then
+            print_error "Failed to install ${module_to_package[$module]}. Install manually with: sudo apt-get install ${module_to_package[$module]}"
+            exit 1
+        fi
+        # Re-verify module after installation
+        perl -M"$module" -e 'exit 0' &>> $logfile
+        if [ $? -ne 0 ]; then
+            print_error "Perl module $module still not found after installation attempt."
+            print_notification "Try installing via CPAN: sudo cpan install $module"
+            exit 1
+        else
+            print_good "Perl module $module installed and verified."
+        fi
+    else
+        print_good "Perl module $module is available."
+    fi
+done
 
 # Verify PulledPork version.
 pp_version=$(/usr/src/pulledpork/pulledpork.pl -V 2>/dev/null | grep -oP '\d+\.\d+\.\d+' || echo "0.8.0")
@@ -682,7 +695,7 @@ while [ $attempt -le $max_attempts ]; do
             print_notification "- Verify Perl: which perl"
             print_notification "- Check script permissions: ls -l /usr/src/pulledpork/pulledpork.pl"
             print_notification "- Test script manually: perl /usr/src/pulledpork/pulledpork.pl -V"
-            print_notification "- Check Perl modules: perl -MLWP::UserAgent -e 'exit 0'; perl -MLWP::Protocol::https -e 'exit 0'"
+            print_notification "- Check Perl modules: perl -MLWP::UserAgent -e 'exit 0'; perl -MArchive::Tar -e 'exit 0'; perl -MCrypt::SSLeay -e 'exit 0'; perl -MLWP::Protocol::https -e 'exit 0'"
             print_notification "- Verify oinkcode: curl -s -I https://www.snort.org/downloads/registered/snortrules-snapshot-2983.tar.gz?oinkcode=$o_code"
             print_notification "- Check line 1820: head -n 1820 /usr/src/pulledpork/pulledpork.pl | tail -n 10"
         fi
@@ -696,7 +709,7 @@ while [ $attempt -le $max_attempts ]; do
             print_notification "- Network issues: Ensure connectivity to www.snort.org and talosintelligence.com."
             print_notification "- Configuration error: Check /usr/src/pulledpork/etc/pulledpork.conf."
             print_notification "- Missing Perl modules: Install libwww-perl, libarchive-zip-perl, libcrypt-ssleay-perl, liblwp-protocol-https-perl."
-            print_notification "- File  Disk space: df -h /tmp $snort_basedir"
+            print_notification "- File/Disk space: df -h /tmp $snort_basedir"
             print_notification "- Proxy settings: Set HTTP_PROXY and HTTPS_PROXY if needed."
             print_notification "Run manually to debug: sudo perl /usr/src/pulledpork/pulledpork.pl -c /usr/src/pulledpork/etc/pulledpork.conf -vv"
             exit 1
