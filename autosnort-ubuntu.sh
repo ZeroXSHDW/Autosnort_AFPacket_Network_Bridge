@@ -598,7 +598,7 @@ fi
 echo "rule_url=https://www.snort.org/reg-rules/|snortrules-snapshot.tar.gz|$o_code" > pulledpork.tmp
 echo "rule_url=https://snort.org/downloads/community/|opensource.gz|Opensource" >> pulledpork.tmp
 echo "rule_url=https://snort.org/downloads/community/|community-rules.tar.gz|Community" >> pulledpork.tmp
-echo "rule_url=http://talosintel.com/feeds/ip-filter.blf|IPBLACKLIST|open" >> pulledpork.tmp
+echo "rule_url=https://snort.org/downloads/ip-block-list|IPBLOCKLIST|open" >> pulledpork.tmp
 echo "ignore=deleted.rules,experimental.rules,local.rules" >> pulledpork.tmp
 echo "temp_path=/tmp" >> pulledpork.tmp
 echo "rule_path=$snort_basedir/rules/snort.rules" >> pulledpork.tmp
