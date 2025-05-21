@@ -153,11 +153,11 @@ fi
 
 ########################################
 # Install required packages for Snort, DAQ, and PulledPork.
-# Added libc6-dev to provide rpc.h for sp_rpc_check.c.
+# Added libc6-dev and rpcsvc-proto to provide rpc.h for sp_rpc_check.c.
 if [[ $release == "20."* ]]; then
-    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev.."
+    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto.."
     
-    declare -a packages=(gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev)
+    declare -a packages=(gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto)
     
     install_packages "${packages[@]}"
 
@@ -183,9 +183,9 @@ else
     error_check 'Modification of /etc/apt/sources.list'
     print_notification 'This script assumes a default sources.list and changes all default repos to include universe. If you added third-party sources, re-enter them manually from /etc/apt/sources.list.bak into /etc/apt/sources.list.'
     
-    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev.."
+    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto.."
     
-    declare -a packages=(gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev)
+    declare -a packages=(gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto)
     
     install_packages "${packages[@]}"
 
@@ -381,12 +381,14 @@ fi
 print_status "Checking for rpc.h required by sp_rpc_check.c..."
 rpc_h_path=$(find /usr/include -name rpc.h 2>/dev/null | grep rpc/rpc.h | head -1)
 if [ -z "$rpc_h_path" ]; then
-    print_notification "rpc.h not found. Attempting to reinstall libc6-dev..."
-    apt-get install -y libc6-dev &>> $logfile
-    error_check 'Reinstallation of libc6-dev'
+    print_notification "rpc.h not found. Attempting to reinstall libc6-dev and rpcsvc-proto..."
+    apt-get install -y libc6-dev rpcsvc-proto &>> $logfile
+    error_check 'Reinstallation of libc6-dev and rpcsvc-proto'
     rpc_h_path=$(find /usr/include -name rpc.h 2>/dev/null | grep rpc/rpc.h | head -1)
     if [ -z "$rpc_h_path" ]; then
-        print_error "rpc.h still not found after reinstalling libc6-dev. Please manually install libc6-dev and verify /usr/include/rpc/rpc.h exists."
+        print_error "rpc.h still not found after reinstalling libc6-dev and rpcsvc-proto."
+        print_notification "Please manually install libc6-dev or rpcsvc-proto and verify rpc.h exists (e.g., /usr/include/rpc/rpc.h)."
+        print_notification "You can locate rpc.h with: find /usr/include -name rpc.h"
         exit 1
     fi
 fi
