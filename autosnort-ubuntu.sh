@@ -1,7 +1,7 @@
 #!/bin/bash
 # Autosnort script for Ubuntu 18.04+
 # Please note that this version of the script is specifically made available for students of Building Virtual Labs training on networkdefense.io, as well as the book, Building Virtual Machine Labs: A Hands-On Guide
-# This script will configure Snort
+# This script will configure Snort and PulledPork with enhanced logging and retry logic for rule downloads
 
 # Logging setup. Uses FIFO/pipe to log all output to a file for troubleshooting.
 logfile=/var/log/autosnort_install.log
@@ -15,22 +15,22 @@ rm ${logfile}.pipe
 # Metasploit-like print statements for status, success, error, and notification messages.
 function print_status()
 {
-    echo -e "\x1B[01;34m[*]\x1B[0m $1"
+    echo -e "\x1B[01;34m[*]\x1B[0m $1" | tee -a $logfile
 }
 
 function print_good()
 {
-    echo -e "\x1B[01;32m[*]\x1B[0m $1"
+    echo -e "\x1B[01;32m[*]\x1B[0m $1" | tee -a $logfile
 }
 
 function print_error()
 {
-    echo -e "\x1B[01;31m[*]\x1B[0m $1"
+    echo -e "\x1B[01;31m[*]\x1B[0m $1" | tee -a $logfile
 }
 
 function print_notification()
 {
-    echo -e "\x1B[01;33m[*]\x1B[0m $1"
+    echo -e "\x1B[01;33m[*]\x1B[0m $1" | tee -a $logfile
 }
 
 ########################################
@@ -130,6 +130,15 @@ if [ "$(whoami)" != "root" ]; then
     exit 1
 else
     print_good "We are root."
+fi
+
+# Validate oinkcode format (40-character hexadecimal).
+if [ -z "$o_code" ] || ! [[ $o_code =~ ^[0-9a-fA-F]{40}$ ]]; then
+    print_error "Invalid or missing oinkcode in full_autosnort.conf. It must be a 40-character hexadecimal string."
+    print_notification "Obtain a valid oinkcode from https://www.snort.org/users/sign_in and update o_code in $execdir/full_autosnort.conf."
+    exit 1
+else
+    print_good "Oinkcode format validated successfully."
 fi
 
 # Suppress package installation messages.
@@ -484,12 +493,12 @@ else
     print_good "Successfully downloaded .conf file for $snortver."
 fi
 
-print_status "ldconfig processing and creation of whitelist/blacklist.rules files taking place."
+print_status "ldconfig processing and creation of whitelist/blocklist.rules files taking place."
 touch $snort_basedir/rules/white_list.rules
 touch $snort_basedir/rules/black_list.rules
 ldconfig
 
-print_status "Modifying snort.conf -- specifying unified 2 output, SO whitelist/blacklist, and standard rule locations.."
+print_status "Modifying snort.conf -- specifying unified 2 output, SO whitelist/blocklist, and standard rule locations.."
 sed -i "s#dynamicpreprocessor directory /usr/local/lib/snort_dynamicpreprocessor#dynamicpreprocessor directory $snort_basedir/lib/snort_dynamicpreprocessor#" $snort_basedir/etc/snort.conf
 sed -i "s#dynamicengine /usr/local/lib/snort_dynamicengine/libsf_engine.so#dynamicengine $snort_basedir/lib/snort_dynamicengine/libsf_engine.so#" $snort_basedir/etc/snort.conf
 sed -i "s#dynamicdetection directory /usr/local/lib/snort_dynamicrules#dynamicdetection directory $snort_basedir/snort_dynamicrules#" $snort_basedir/etc/snort.conf
@@ -520,20 +529,16 @@ git clone https://github.com/shirkdog/pulledpork.git &>> $logfile
 error_check 'Download of PulledPork'
 
 # Verify PulledPork version.
-pp_version=$(/usr/src/pulledpork/pulledpork.pl -V 2>/dev/null | grep -oP '\d+\.\d+\.\d+')
-if [ -z "$pp_version" ]; then
-    print_notification "Could not determine PulledPork version. Assuming 0.8.0 or newer."
-    pp_version="0.8.0"
-else
-    print_good "PulledPork version $pp_version cloned successfully."
-fi
+pp_version=$(/usr/src/pulledpork/pulledpork.pl -V 2>/dev/null | grep -oP '\d+\.\d+\.\d+' || echo "0.8.0")
+print_good "PulledPork version $pp_version cloned successfully."
 
 print_good "PulledPork successfully installed to /usr/src."
 print_status "Generating pulledpork.conf for version $pp_version."
 cd pulledpork/etc
 
 # Create a copy of the original conf file.
-cp pulledpork.conf pulledpork.conf.orig
+cp pulledpork.conf pulledpork.conf.orig &>> $logfile
+error_check 'Backup of pulledpork.conf'
 
 # Adjust Snort version for PulledPork (expects 4-digit version, e.g., 2.9.20.0).
 snortverperiods=$(echo $snortver | grep -o '\.' | wc -l)
@@ -569,18 +574,68 @@ EOL
 cp pulledpork.tmp pulledpork.conf
 error_check 'Generation of pulledpork.conf'
 
-# Run PulledPork.
-cd /usr/src/pulledpork
-print_status "Attempting to download rules for $ppsnortver using PulledPork $pp_version.."
-print_notification "If this hangs, ensure HTTP_PROXY, http_proxy, HTTPS_PROXY, and https_proxy variables are set as required!"
-perl pulledpork.pl -W -vv -P -c /usr/src/pulledpork/etc/pulledpork.conf &>> $logfile
-if [ $? == 0 ]; then
-    pp_postprocessing
-else
-    print_error "Rule download for $ppsnortver has failed. Check $logfile, troubleshoot connectivity issues to snort.org, and ensure your oinkcode ($o_code) is valid."
-    print_notification "Wait a minimum of 15 minutes before trying again."
+# Validate pulledpork.conf existence and readability.
+if [ ! -f /usr/src/pulledpork/etc/pulledpork.conf ]; then
+    print_error "pulledpork.conf not found at /usr/src/pulledpork/etc/pulledpork.conf."
     exit 1
 fi
+if [ ! -r /usr/src/pulledpork/etc/pulledpork.conf ]; then
+    print_error "pulledpork.conf at /usr/src/pulledpork/etc/pulledpork.conf is not readable."
+    exit 1
+fi
+print_good "pulledpork.conf generated and validated successfully."
+
+# Test network connectivity to rule URLs.
+print_status "Testing network connectivity to rule download URLs..."
+ping -c 2 www.snort.org &>> $logfile
+if [ $? -eq 0 ]; then
+    print_good "Network connectivity to www.snort.org is good."
+else
+    print_notification "Warning: Cannot ping www.snort.org. This may cause rule download issues."
+fi
+curl -s -I https://www.snort.org/downloads/registered/snortrules-snapshot-2983.tar.gz?oinkcode=$o_code &>> $logfile
+if [ $? -eq 0 ]; then
+    print_good "Oinkcode appears valid for Snort registered rules."
+else
+    print_notification "Warning: Oinkcode validation failed or network issue detected for Snort rules URL."
+fi
+ping -c 2 talosintelligence.com &>> $logfile
+if [ $? -eq 0 ]; then
+    print_good "Network connectivity to talosintelligence.com is good."
+else
+    print_notification "Warning: Cannot ping talosintelligence.com. This may cause blocklist download issues."
+fi
+
+# Run PulledPork with retries.
+max_attempts=3
+attempt=1
+while [ $attempt -le $max_attempts ]; do
+    print_status "Attempting to download rules for $ppsnortver using PulledPork $pp_version (Attempt $attempt/$max_attempts).."
+    print_notification "Running: perl /usr/src/pulledpork/pulledpork.pl -W -vv -P -c /usr/src/pulledpork/etc/pulledpork.conf"
+    perl /usr/src/pulledpork/pulledpork.pl -W -vv -P -c /usr/src/pulledpork/etc/pulledpork.conf 2>&1 | tee -a $logfile
+    pp_status=${PIPESTATUS[0]}
+    if [ $pp_status -eq 0 ]; then
+        print_good "Rule download successful on attempt $attempt."
+        pp_postprocessing
+        break
+    else
+        print_notification "Rule download failed on attempt $attempt with exit code $pp_status."
+        if [ $attempt -lt $max_attempts ]; then
+            print_notification "Retrying in 15 seconds..."
+            sleep 15
+        else
+            print_error "Rule download failed after $max_attempts attempts. Check $logfile for details."
+            print_notification "Possible causes:"
+            print_notification "- Invalid oinkcode: Verify $o_code at https://www.snort.org/users/sign_in."
+            print_notification "- Network issues: Ensure connectivity to www.snort.org and talosintelligence.com."
+            print_notification "- Configuration error: Check /usr/src/pulledpork/etc/pulledpork.conf."
+            print_notification "- Proxy settings: Set HTTP_PROXY and HTTPS_PROXY if needed."
+            print_notification "Run manually to debug: sudo /usr/src/pulledpork/pulledpork.pl -c /usr/src/pulledpork/etc/pulledpork.conf -vv"
+            exit 1
+        fi
+    fi
+    ((attempt++))
+done
 
 ########################################
 # Disable network offloading options.
@@ -593,8 +648,8 @@ ethtool -K $snort_iface_1 ufo off &>> $logfile
 ethtool -K $snort_iface_1 gso off &>> $logfile
 ethtool -K $snort_iface_1 gro off &>> $logfile
 ethtool -K $snort_iface_1 lro off &>> $logfile
-ethtool -K $snort_iface_1 rx off &>> $logfile
-ethtool -K $snort_iface_1 tx off &>> $logfile
+ethtool -K $snort_iface_2 rx off &>> $logfile
+ethtool -K $snort_iface_2 tx off &>> $logfile
 ethtool -K $snort_iface_2 sg off &>> $logfile
 ethtool -K $snort_iface_2 tso off &>> $logfile
 ethtool -K $snort_iface_2 ufo off &>> $logfile
