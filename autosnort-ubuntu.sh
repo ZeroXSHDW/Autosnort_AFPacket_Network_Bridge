@@ -1,7 +1,7 @@
 #!/bin/bash
 # Autosnort script for Ubuntu 18.04+
 # Please note that this version of the script is specifically made available for students of Building Virtual Labs training on networkdefense.io, as well as the book, Building Virtual Machine Labs: A Hands-On Guide
-# This script will configure Snort and PulledPork with enhanced logging, retry logic, and debugging for rule downloads
+# This script configures Snort and PulledPork with enhanced logging and debugging for rule downloads, targeting PulledPork 0.8.0
 
 # Logging setup. Uses FIFO/pipe to log all output to a file for troubleshooting.
 logfile=/var/log/autosnort_install.log
@@ -41,10 +41,11 @@ function print_notification()
 # Error checking function. Exits on non-zero status with details logged.
 function error_check()
 {
-    if [ $? -eq 0 ]; then
+    local status=$?
+    if [ $status -eq 0 ]; then
         print_good "$1 successfully completed."
     else
-        print_error "$1 failed with exit code $?. Please check $logfile for more details, or contact deusexmachina667 at gmail dot com for more assistance."
+        print_error "$1 failed with exit code $status. Please check $logfile for more details, or contact deusexmachina667 at gmail dot com for more assistance."
         exit 1
     fi
 }
@@ -174,9 +175,9 @@ fi
 # Install required packages for Snort, DAQ, and PulledPork.
 # Includes libc6-dev, rpcsvc-proto, libtirpc-dev for rpc.h, and Perl modules for PulledPork.
 if [[ $release == "20."* ]]; then
-    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev libarchive-zip-perl libcrypt-ssleay-perl.."
+    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev libarchive-zip-perl libcrypt-ssleay-perl liblwp-protocol-https-perl.."
     
-    declare -a packages=(gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev libarchive-zip-perl libcrypt-ssleay-perl)
+    declare -a packages=(gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev libarchive-zip-perl libcrypt-ssleay-perl liblwp-protocol-https-perl)
     
     install_packages "${packages[@]}"
 
@@ -202,9 +203,9 @@ else
     error_check 'Modification of /etc/apt/sources.list'
     print_notification 'This script assumes a default sources.list and changes all default repos to include universe. If you added third-party sources, re-enter them manually from /etc/apt/sources.list.bak into /etc/apt/sources.list.'
     
-    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev libarchive-zip-perl libcrypt-ssleay-perl.."
+    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev libarchive-zip-perl libcrypt-ssleay-perl liblwp-protocol-https-perl.."
     
-    declare -a packages=(gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev libarchive-zip-perl libcrypt-ssleay-perl)
+    declare -a packages=(gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev libarchive-zip-perl libcrypt-ssleay-perl liblwp-protocol-https-perl)
     
     install_packages "${packages[@]}"
 
@@ -563,6 +564,11 @@ if [ $? -ne 0 ]; then
     print_error "Perl module Crypt::SSLeay not found. Install libcrypt-ssleay-perl."
     exit 1
 fi
+perl -MLWP::Protocol::https -e 'exit 0' &>> $logfile
+if [ $? -ne 0 ]; then
+    print_error "Perl module LWP::Protocol::https not found. Install liblwp-protocol-https-perl."
+    exit 1
+fi
 print_good "Perl and required modules verified."
 
 # Verify PulledPork version.
@@ -611,7 +617,7 @@ EOL
 cp pulledpork.tmp pulledpork.conf
 error_check 'Generation of pulledpork.conf'
 
-# Validate pulledpork.conf existence and readability.
+# Validate pulledpork.conf existence, readability, and permissions.
 if [ ! -f /usr/src/pulledpork/etc/pulledpork.conf ]; then
     print_error "pulledpork.conf not found at /usr/src/pulledpork/etc/pulledpork.conf."
     exit 1
@@ -620,7 +626,17 @@ if [ ! -r /usr/src/pulledpork/etc/pulledpork.conf ]; then
     print_error "pulledpork.conf at /usr/src/pulledpork/etc/pulledpork.conf is not readable."
     exit 1
 fi
+chmod 644 /usr/src/pulledpork/etc/pulledpork.conf &>> $logfile
+error_check 'Setting permissions for pulledpork.conf'
 print_good "pulledpork.conf generated and validated successfully."
+
+# Check disk space for temp and rules directories.
+print_status "Checking disk space for /tmp and $snort_basedir/rules..."
+df -h /tmp $snort_basedir &>> $logfile
+if [ $? -ne 0 ]; then
+    print_error "Failed to check disk space. Ensure /tmp and $snort_basedir have sufficient space."
+    exit 1
+fi
 
 # Test network connectivity to rule URLs.
 print_status "Testing network connectivity to rule download URLs..."
@@ -643,6 +659,9 @@ else
     print_notification "Warning: Cannot ping talosintelligence.com. This may cause blocklist download issues."
 fi
 
+# Enable bash debugging for PulledPork execution.
+set -x
+
 # Run PulledPork with retries.
 max_attempts=3
 attempt=1
@@ -658,12 +677,14 @@ while [ $attempt -le $max_attempts ]; do
     else
         print_notification "Rule download failed on attempt $attempt with exit code $pp_status."
         if [ $pp_status -eq 255 ]; then
-            print_error "Exit code 255 indicates a critical failure (e.g., Perl error, missing module, or script not executable)."
+            print_error "Exit code 255 indicates a critical failure at /usr/src/pulledpork/pulledpork.pl line 1820."
             print_notification "Debugging steps:"
             print_notification "- Verify Perl: which perl"
             print_notification "- Check script permissions: ls -l /usr/src/pulledpork/pulledpork.pl"
             print_notification "- Test script manually: perl /usr/src/pulledpork/pulledpork.pl -V"
-            print_notification "- Check Perl modules: perl -MLWP::UserAgent -e 'exit 0'"
+            print_notification "- Check Perl modules: perl -MLWP::UserAgent -e 'exit 0'; perl -MLWP::Protocol::https -e 'exit 0'"
+            print_notification "- Verify oinkcode: curl -s -I https://www.snort.org/downloads/registered/snortrules-snapshot-2983.tar.gz?oinkcode=$o_code"
+            print_notification "- Check line 1820: head -n 1820 /usr/src/pulledpork/pulledpork.pl | tail -n 10"
         fi
         if [ $attempt -lt $max_attempts ]; then
             print_notification "Retrying in 15 seconds..."
@@ -674,7 +695,8 @@ while [ $attempt -le $max_attempts ]; do
             print_notification "- Invalid oinkcode: Verify $o_code at https://www.snort.org/users/sign_in."
             print_notification "- Network issues: Ensure connectivity to www.snort.org and talosintelligence.com."
             print_notification "- Configuration error: Check /usr/src/pulledpork/etc/pulledpork.conf."
-            print_notification "- Missing Perl modules: Install libwww-perl, libarchive-zip-perl, libcrypt-ssleay-perl."
+            print_notification "- Missing Perl modules: Install libwww-perl, libarchive-zip-perl, libcrypt-ssleay-perl, liblwp-protocol-https-perl."
+            print_notification "- File  Disk space: df -h /tmp $snort_basedir"
             print_notification "- Proxy settings: Set HTTP_PROXY and HTTPS_PROXY if needed."
             print_notification "Run manually to debug: sudo perl /usr/src/pulledpork/pulledpork.pl -c /usr/src/pulledpork/etc/pulledpork.conf -vv"
             exit 1
@@ -682,6 +704,9 @@ while [ $attempt -le $max_attempts ]; do
     fi
     ((attempt++))
 done
+
+# Disable bash debugging.
+set +x
 
 ########################################
 # Disable network offloading options.
