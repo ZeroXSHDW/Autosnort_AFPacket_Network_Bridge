@@ -146,14 +146,20 @@ print_status "OS Version Check.."
 release=$(lsb_release -r | awk '{print $2}')
 if [[ $release == "18."* || $release == "20."* ]]; then
     print_good "OS is Ubuntu. Good to go."
+    if [[ $release == "18."* ]]; then
+        distro="Ubuntu-18-04"
+    else
+        distro="Ubuntu-20-04"
+    fi
 else
     print_notification "This is not Ubuntu 18.x or 20.x, this script has NOT been tested on other platforms."
     print_notification "You continue at your own risk! (Please report your successes or failures!)"
+    distro="Ubuntu-18-04" # Fallback for non-standard Ubuntu versions
 fi
 
 ########################################
 # Install required packages for Snort, DAQ, and PulledPork.
-# Added libc6-dev, rpcsvc-proto, and libtirpc-dev to provide rpc.h for sp_rpc_check.c.
+# Includes libc6-dev, rpcsvc-proto, and libtirpc-dev for rpc.h.
 if [[ $release == "20."* ]]; then
     print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev.."
     
@@ -509,17 +515,27 @@ if [ -d /usr/src/pulledpork ]; then
     rm -rf /usr/src/pulledpork
 fi
 
-print_status "Acquiring PulledPork.."
+print_status "Acquiring PulledPork (latest version from GitHub).."
 git clone https://github.com/shirkdog/pulledpork.git &>> $logfile
 error_check 'Download of PulledPork'
 
+# Verify PulledPork version.
+pp_version=$(/usr/src/pulledpork/pulledpork.pl -V 2>/dev/null | grep -oP '\d+\.\d+\.\d+')
+if [ -z "$pp_version" ]; then
+    print_notification "Could not determine PulledPork version. Assuming 0.8.0 or newer."
+    pp_version="0.8.0"
+else
+    print_good "PulledPork version $pp_version cloned successfully."
+fi
+
 print_good "PulledPork successfully installed to /usr/src."
-print_status "Generating pulledpork.conf."
+print_status "Generating pulledpork.conf for version $pp_version."
 cd pulledpork/etc
 
+# Create a copy of the original conf file.
 cp pulledpork.conf pulledpork.conf.orig
 
-# Adjust Snort version for PulledPork.
+# Adjust Snort version for PulledPork (expects 4-digit version, e.g., 2.9.20.0).
 snortverperiods=$(echo $snortver | grep -o '\.' | wc -l)
 if [ $snortverperiods -eq 2 ]; then
     ppsnortver=$snortver.0
@@ -527,39 +543,42 @@ else
     ppsnortver=$snortver
 fi
 
+# Generate pulledpork.conf compatible with PulledPork 0.8.0.
 cat > pulledpork.tmp << EOL
-rule_url=https://www.snort.org/reg-rules/|snortrules-snapshot.tar.gz|$o_code
-rule_url=https://snort.org/downloads/community/|opensource.gz|Opensource
-rule_url=https://snort.org/downloads/community/|community-rules.tar.gz|Community
-rule_url=http://talosintel.com/feeds/ip-filter.blf|IPBLACKLIST|open
+# PulledPork configuration for version 0.8.0
+rule_url=https://www.snort.org/downloads/community/community-rules.tar.gz|community-rules.tar.gz|Community
+rule_url=https://snort.org/downloads/community/opensource.gz|opensource.gz|opensource
+rule_url=https://www.snort.org/downloads/registered/snortrules-snapshot-2983.tar.gz|snortrules-snapshot.tar.gz|$o_code
+blocklist=http://talosintelligence.com/feeds/ip-filter.blf|IPBLACKLIST|open
 ignore=deleted.rules,experimental.rules,local.rules
 temp_path=/tmp
 rule_path=$snort_basedir/rules/snort.rules
 local_rules=$snort_basedir/rules/local.rules
 sid_msg=$snort_basedir/etc/sid-msg.map
-sid_msg_version=1
+sid_msg_version=2
 sid_changelog=/var/log/sid_changes.log
 sorule_path=$snort_basedir/snort_dynamicrules/
 snort_path=$snort_basedir/bin/snort
 snort_version=$(echo $ppsnortver | cut -d'-' -f2)
-distro=Ubuntu-16-4
+distro=$distro
 config_path=$snort_basedir/etc/snort.conf
-black_list=$snort_basedir/rules/black_list.rules
+blocklist=$snort_basedir/rules/black_list.rules
 IPRVersion=$snort_basedir/rules/iplists
 ips_policy=security
-version=0.7.4
 EOL
 cp pulledpork.tmp pulledpork.conf
+error_check 'Generation of pulledpork.conf'
 
 # Run PulledPork.
 cd /usr/src/pulledpork
-print_status "Attempting to download rules for $ppsnortver.."
+print_status "Attempting to download rules for $ppsnortver using PulledPork $pp_version.."
 print_notification "If this hangs, ensure HTTP_PROXY, http_proxy, HTTPS_PROXY, and https_proxy variables are set as required!"
 perl pulledpork.pl -W -vv -P -c /usr/src/pulledpork/etc/pulledpork.conf &>> $logfile
 if [ $? == 0 ]; then
     pp_postprocessing
 else
-    print_error "Rule download for $ppsnortver has failed. Check $logfile, troubleshoot connectivity issues to snort.org, and wait a minimum of 15 minutes before trying again."
+    print_error "Rule download for $ppsnortver has failed. Check $logfile, troubleshoot connectivity issues to snort.org, and ensure your oinkcode ($o_code) is valid."
+    print_notification "Wait a minimum of 15 minutes before trying again."
     exit 1
 fi
 
@@ -574,8 +593,8 @@ ethtool -K $snort_iface_1 ufo off &>> $logfile
 ethtool -K $snort_iface_1 gso off &>> $logfile
 ethtool -K $snort_iface_1 gro off &>> $logfile
 ethtool -K $snort_iface_1 lro off &>> $logfile
-ethtool -K $snort_iface_2 rx off &>> $logfile
-ethtool -K $snort_iface_2 tx off &>> $logfile
+ethtool -K $snort_iface_1 rx off &>> $logfile
+ethtool -K $snort_iface_1 tx off &>> $logfile
 ethtool -K $snort_iface_2 sg off &>> $logfile
 ethtool -K $snort_iface_2 tso off &>> $logfile
 ethtool -K $snort_iface_2 ufo off &>> $logfile
