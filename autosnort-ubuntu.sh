@@ -5,7 +5,7 @@
 # Modified to enhance verification of Perl modules (libwww-perl, libarchive-zip-perl, libcrypt-ssleay-perl, liblwp-protocol-https-perl)
 # PulledPork section reverted to original code from autosnort-ubuntu-AVATAR-orig.sh for version 0.8.0
 # Updated GPG key import with retries, multiple keyservers, and fallback for apt keyring
-# Updated snort.conf download to use hardcoded URL with retries
+# Updated snort.conf download to use reliable URLs with retries and fallback to Snort tarball
 # Added validation checks for snort.conf, rules, and interfaces to prevent service startup failures
 # Fixed syntax error on line 376 (incomplete cp command)
 # Fixed permission-setting for Snort directories to handle missing or empty directories
@@ -370,21 +370,10 @@ else
     echo -e "deb http://archive.ubuntu.com/ubuntu bionic main universe restricted multiverse\ndeb http://archive.ubuntu.com/ubuntu bionic-security main universe restricted multiverse\ndeb http://archive.ubuntu.com/ubuntu bionic-updates main universe restricted multiverse" > /etc/apt/sources.list
     error_check 'Modification of /etc/apt/sources.list'
 
-    # Ensure gnupg is installed for GPG operations
-    print_status "Ensuring gnupg is installed for GPG key management..."
-    apt-get install -y gnupg &>> $logfile
-    error_check 'Installation of gnupg'
-
-    # Clear apt cache to avoid stale keyring issues
-    print_status "Clearing apt cache to ensure clean keyring..."
-    rm -rf /var/lib/apt/lists/* &>> $logfile
-    error_check 'Clearing apt cache'
-
-    # Import Ubuntu repository GPG keys
+    # Import Ubuntu repository GPG keys.
+    print_status "Importing Ubuntu repository GPG keys..."
     import_gpg_key "3B4FE6ACC0B21F32" "ubuntu-key1"
     import_gpg_key "871920D1991BC93C" "ubuntu-key2"
-
-    # Verify keys are recognized by apt
     verify_apt_keyring "3B4FE6ACC0B21F32"
     verify_apt_keyring "871920D1991BC93C"
 
@@ -402,7 +391,7 @@ else
     error_check "Verification of Archive::Tar module"
 fi
 
-# Create symlink for libdumbnet.h nutrto dnet.h for barnyard2 compatibility.
+# Create symlink for libdumbnet.h to dnet.h for barnyard2 compatibility.
 if [ ! -h /usr/include/dnet.h ]; then
     print_status "Creating symlink for libdumbnet.h to dnet.h.."
     ln -s /usr/include/dumbnet.h /usr/include/dnet.h
@@ -416,7 +405,7 @@ daqtar="daq-2.0.7.tar.gz"
 daqver="daq-2.0.7"
 
 # Define snort.conf URLs for primary and fallback
-primary_conf_url="https://www.snort.org/documents/snort-209200-conf"
+primary_conf_url="https://www.snort.org/documents/snort.conf"
 fallback_conf_url="https://www.snort.org/documents/snort-209190-conf"
 
 cd /usr/src
@@ -708,10 +697,21 @@ for attempt in {1..3}; do
                 else
                     print_notification "Fallback attempt $fallback_attempt failed for $fallback_conf_url."
                     if [ $fallback_attempt -eq 3 ]; then
-                        print_error "Failed to download snort.conf after 3 primary and 3 fallback attempts. Check $logfile for details."
-                        print_notification "Possible reasons: Network issues, unavailable file, or snort.org server restrictions."
-                        print_notification "Manual workaround: Download $primary_conf_url or $fallback_conf_url, place it in $snort_basedir/etc/snort.conf, then re-run the script."
-                        exit 1
+                        print_notification "Both primary and fallback downloads failed. Attempting to use snort.conf from Snort tarball..."
+                        if [ -f "/usr/src/$snortver/etc/snort.conf" ]; then
+                            cp /usr/src/$snortver/etc/snort.conf $snort_basedir/etc/snort.conf &>> $logfile
+                            if [ $? -eq 0 ]; then
+                                print_good "Successfully copied snort.conf from Snort tarball to $snort_basedir/etc/snort.conf."
+                            else
+                                print_error "Failed to copy snort.conf from Snort tarball. Check $logfile for details."
+                                print_notification "Manual workaround: Copy /usr/src/$snortver/etc/snort.conf to $snort_basedir/etc/snort.conf, then re-run the script."
+                                exit 1
+                            fi
+                        else
+                            print_error "Snort tarball snort.conf not found at /usr/src/$snortver/etc/snort.conf. Check $logfile for details."
+                            print_notification "Manual workaround: Download a valid snort.conf from https://www.snort.org/documents, place it in $snort_basedir/etc/snort.conf, then re-run the script."
+                            exit 1
+                        fi
                     fi
                     sleep 5
                 fi
@@ -721,12 +721,12 @@ for attempt in {1..3}; do
     fi
 done
 
-print_status "ldconfig processing and creation of whitelist/blocklist.rules files taking place."
+print_status "ldconfig processing and creation of whitelist/blacklist.rules files taking place."
 touch $snort_basedir/rules/white_list.rules
 touch $snort_basedir/rules/black_list.rules
 ldconfig
 
-print_status "Modifying snort.conf -- specifying unified 2 output, SO whitelist/blocklist, and standard rule locations.."
+print_status "Modifying snort.conf -- specifying unified 2 output, SO whitelist/blacklist, and standard rule locations.."
 sed -i "s#dynamicpreprocessor directory /usr/local/lib/snort_dynamicpreprocessor#dynamicpreprocessor directory $snort_basedir/lib/snort_dynamicpreprocessor#" $snort_basedir/etc/snort.conf
 sed -i "s#dynamicengine /usr/local/lib/snort_dynamicengine/libsf_engine.so#dynamicengine $snort_basedir/lib/snort_dynamicengine/libsf_engine.so#" $snort_basedir/etc/snort.conf
 sed -i "s#dynamicdetection directory /usr/local/lib/snort_dynamicrules#dynamicdetection directory $snort_basedir/snort_dynamicrules#" $snort_basedir/etc/snort.conf
