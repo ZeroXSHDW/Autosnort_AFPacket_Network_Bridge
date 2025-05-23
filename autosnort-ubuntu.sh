@@ -7,6 +7,7 @@
 # Updated GPG key import with retries, multiple keyservers, and fallback for apt keyring
 # Updated snort.conf download to use hardcoded URL with retries
 # Added validation checks for snort.conf, rules, and interfaces to prevent service startup failures
+# Fixed syntax error on line 376 (incomplete cp command) and ensured all blocks are closed
 
 # Logging setup. Uses FIFO/pipe to log all output to a file for troubleshooting.
 logfile=/var/log/autosnort_install.log
@@ -373,4 +374,283 @@ else
 
     print_notification 'This script assumes a default sources.list and changes all default repos to include universe. If you added third-party sources, re-enter them manually from /etc/apt/sources.list.bak into /etc/apt/sources.list.'
     
-    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev libarchive-zip-perl libcrypt-ssleay-perl liblwp-protocol-https-perl gnupg
+    print_status "Installing base packages: gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev libarchive-zip-perl libcrypt-ssleay-perl liblwp-protocol-https-perl gnupg.."
+    
+    declare -a packages=(gcc g++ make libdumbnet-dev libdnet-dev libpcap-dev ethtool build-essential libpcap0.8-dev libpcre3-dev bison flex autoconf libtool perl libnet-ssleay-perl liblzma-dev libluajit-5.1-2 libluajit-5.1-common libluajit-5.1-dev luajit libwww-perl libnghttp2-dev libssl-dev openssl pkg-config zlib1g-dev libc6-dev rpcsvc-proto libtirpc-dev libarchive-zip-perl libcrypt-ssleay-perl liblwp-protocol-https-perl gnupg)
+    
+    install_packages "${packages[@]}"
+
+    # Verify Archive::Tar module.
+    print_status "Verifying Archive::Tar module is available.."
+    perl -MArchive::Tar -e 'exit 0' &>> $logfile
+    error_check "Verification of Archive::Tar module"
+fi
+
+# Create symlink for libdumbnet.h to dnet.h for barnyard2 compatibility.
+if [ ! -h /usr/include/dnet.h ]; then
+    print_status "Creating symlink for libdumbnet.h to dnet.h.."
+    ln -s /usr/include/dumbnet.h /usr/include/dnet.h
+fi
+
+########################################
+# Hardcode Snort and DAQ versions.
+snorttar="snort-2.9.20.tar.gz"
+snortver="snort-2.9.20"
+daqtar="daq-2.0.7.tar.gz"
+daqver="daq-2.0.7"
+
+# Define snort.conf URLs for primary and fallback
+primary_conf_url="https://www.snort.org/documents/snort-209200-conf"
+fallback_conf_url="https://www.snort.org/documents/snort-209190-conf"
+
+cd /usr/src
+
+########################################
+# Install DAQ libraries.
+print_status "Acquiring and unpacking $daqver to /usr/src.."
+print_notification "Attempting to download DAQ from: https://www.snort.org/downloads/snort/$daqtar"
+
+for attempt in {1..3}; do
+    print_status "Download attempt $attempt for $daqtar..."
+    wget --tries=2 --timeout=10 https://www.snort.org/downloads/snort/$daqtar -O $daqtar &>> $logfile
+    if [ $? -eq 0 ]; then
+        print_good "Successfully downloaded $daqtar."
+        break
+    else
+        print_notification "Attempt $attempt failed for $daqtar."
+        if [ $attempt -eq 3 ]; then
+            print_error "Failed to download $daqtar after 3 attempts. Check $logfile for details."
+            print_notification "Possible reasons: Network issues, unavailable file, or snort.org server restrictions."
+            print_notification "Manual workaround: Download https://www.snort.org/downloads/snort/$daqtar, place it in /usr/src as $daqtar, then re-run the script."
+            exit 1
+        fi
+        sleep 5
+    fi
+done
+
+tar -xzvf $daqtar &>> $logfile
+error_check 'Untar of DAQ'
+
+cd $daqver
+
+print_status "Configuring, making, compiling, and linking DAQ libraries. This will take a moment or two.."
+autoreconf -f -i &>> $logfile
+error_check 'Autoreconf DAQ'
+
+./configure &>> $logfile
+error_check 'Configure DAQ'
+
+print_status "Compiling DAQ with verbose output..."
+make V=1 &>> $logfile
+error_check 'Make DAQ'
+
+make install &>> $logfile
+error_check 'Installation of DAQ libraries'
+
+# Ensure DAQ pkg-config file.
+if [ -f libdaq.pc ]; then
+    print_status "Installing DAQ pkg-config file..."
+    mkdir -p /usr/local/lib/pkgconfig
+    cp libdaq.pc /usr/local/lib/pkgconfig/
+    error_check 'Installation of libdaq.pc'
+else
+    print_notification "libdaq.pc not found in DAQ source directory. Generating manually..."
+    cat > libdaq.pc << EOL
+prefix=/usr/local
+exec_prefix=\${prefix}
+libdir=\${exec_prefix}/lib
+includedir=\${prefix}/include
+
+Name: libdaq
+Description: Data Acquisition library for Snort
+Version: 2.0.7
+Libs: -L\${libdir} -ldaq_static
+Cflags: -I\${includedir}
+EOL
+    mkdir -p /usr/local/lib/pkgconfig
+    mv libdaq.pc /usr/local/lib/pkgconfig/
+    error_check 'Generation and installation of libdaq.pc'
+fi
+
+# Symlink libsfbpf.so.0.
+if [ ! -h /usr/lib/libsfbpf.so.0 ]; then
+    print_status "Creating symlink for libsfbpf.so.0 on default ld library path.."
+    ln -s /usr/local/lib/libsfbpf.so.0 /usr/lib/libsfbpf.so.0
+fi
+
+# Update linker cache.
+ldconfig &>> $logfile
+error_check 'Update linker cache'
+
+cd /usr/src
+
+########################################
+# Install Snort.
+print_status "Acquiring and unpacking $snortver to /usr/src.."
+print_notification "Attempting to download Snort from: https://www.snort.org/downloads/snort/$snorttar"
+
+for attempt in {1..3}; do
+    print_status "Download attempt $attempt for $snorttar..."
+    wget --tries=2 --timeout=10 https://www.snort.org/downloads/snort/$snorttar -O $snorttar &>> $logfile
+    if [ $? -eq 0 ]; then
+        print_good "Successfully downloaded $snorttar."
+        break
+    else
+        print_notification "Attempt $attempt failed for $snorttar."
+        if [ $attempt -eq 3 ]; then
+            print_error "Failed to download $snorttar after 3 attempts. Check $logfile for details."
+            print_notification "Possible reasons: Network issues, unavailable file, or snort.org server restrictions."
+            print_notification "Manual workaround: Download https://www.snort.org/downloads/snort/$snorttar, place it in /usr/src as $snorttar, then re-run the script."
+            exit 1
+        fi
+        sleep 5
+    fi
+done
+
+tar -xzvf $snorttar &>> $logfile
+error_check 'Untar of Snort'
+
+# Verify sp_rpc_check.c exists to ensure tarball integrity.
+if [ ! -f /usr/src/$snortver/src/detection-plugins/sp_rpc_check.c ]; then
+    print_error "sp_rpc_check.c not found in /usr/src/$snortver/src/detection-plugins. The Snort tarball may be corrupted."
+    print_notification "Please re-download https://www.snort.org/downloads/snort/$snorttar and re-run the script."
+    exit 1
+fi
+
+dir_check $snort_basedir
+dir_check $snort_basedir/lib
+
+cd $snortver
+
+print_status "Checking build environment before compiling Snort..."
+# Check disk space.
+df -h /usr/src &>> $logfile
+if [ $? -ne 0 ]; then
+    print_error "Failed to check disk space. Ensure /usr/src has sufficient space."
+    exit 1
+fi
+# Check DAQ installation.
+if [ ! -f /usr/local/lib/libdaq.a ] || [ ! -f /usr/local/include/daq.h ]; then
+    print_error "DAQ library or headers not found at /usr/local/lib/libdaq.a or /usr/local/include/daq.h. Ensure DAQ was installed correctly."
+    exit 1
+fi
+# Check DAQ and libpcap pkg-config files.
+if [ ! -f /usr/local/lib/pkgconfig/libdaq.pc ]; then
+    print_error "DAQ pkg-config file not found at /usr/local/lib/pkgconfig/libdaq.pc. Ensure DAQ was installed correctly."
+    exit 1
+fi
+if [ ! -f /usr/lib/pkgconfig/libpcap.pc ] && [ ! -f /usr/lib/x86_64-linux-gnu/pkgconfig/libpcap.pc ]; then
+    print_error "libpcap pkg-config file not found. Ensure libpcap-dev is installed."
+    exit 1
+fi
+# Check compiler and tools.
+gcc --version &>> $logfile
+make --version &>> $logfile
+if [ $? -ne 0 ]; then
+    print_error "Compiler or make tool missing. Install gcc, g++, and make."
+    exit 1
+fi
+# Set library paths.
+export LD_LIBRARY_PATH=/usr/local/lib:/usr/lib:/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH
+print_notification "Library paths set: LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+print_notification "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
+# Verify pkg-config for libraries.
+pkg-config --libs --cflags libdaq libpcap &>> $logfile
+if [ $? -ne 0 ]; then
+    print_error "pkg-config failed to find libdaq or libpcap. Ensure libraries are installed and paths are correct."
+    print_notification "Try manually installing libpcap-dev and re-running DAQ installation."
+    exit 1
+fi
+# Ensure rpc.h is available for sp_rpc_check.c.
+print_status "Ensuring rpc.h is available for sp_rpc_check.c..."
+# Check if rpc.h already exists in /usr/include/rpc.
+if [ -f /usr/include/rpc/rpc.h ]; then
+    print_good "rpc.h found at /usr/include/rpc/rpc.h"
+    extra_cflags=""
+else
+    # Search for rpc.h system-wide.
+    rpc_h_path=$(find /usr/include -name rpc.h 2>/dev/null | grep -E 'rpc/rpc.h$|tirpc/rpc/rpc.h$' | head -1)
+    if [ -z "$rpc_h_path" ]; then
+        print_notification "rpc.h not found. Attempting to reinstall libc6-dev, rpcsvc-proto, and libtirpc-dev..."
+        apt-get install -y libc6-dev rpcsvc-proto libtirpc-dev &>> $logfile
+        error_check 'Reinstallation of libc6-dev, rpcsvc-proto, and libtirpc-dev'
+        rpc_h_path=$(find /usr/include -name rpc.h 2>/dev/null | grep -E 'rpc/rpc.h$|tirpc/rpc/rpc.h$' | head -1)
+    fi
+    if [ -n "$rpc_h_path" ]; then
+        print_good "rpc.h found at $rpc_h_path"
+        # Create /usr/include/rpc if it doesn't exist.
+        mkdir -p /usr/include/rpc &>> $logfile
+        # Copy or symlink rpc.h to /usr/include/rpc/rpc.h.
+        if [ ! -f /usr/include/rpc/rpc.h ]; then
+            print_notification "Copying $rpc_h_path to /usr/include/rpc/rpc.h..."
+            cp "$rpc_h_path" /usr/include/rpc/rpc.h &>> $logfile
+            if [ $? -eq 0 ]; then
+                print_good "Successfully copied rpc.h to /usr/include/rpc/rpc.h"
+                extra_cflags=""
+            else
+                print_notification "Copy failed. Creating symlink instead..."
+                ln -sf "$rpc_h_path" /usr/include/rpc/rpc.h &>> $logfile
+                error_check "Symlink of rpc.h to /usr/include/rpc/rpc.h"
+                extra_cflags=""
+            fi
+        fi
+    else
+        print_error "rpc.h not found after reinstalling libc6-dev, rpcsvc-proto, and libtirpc-dev."
+        print_notification "Please manually verify package installation and locate rpc.h."
+        print_notification "Run: find /usr/include -name rpc.h"
+        print_notification "You may need to update /etc/apt/sources.list or fix package issues."
+        exit 1
+    fi
+fi
+# Add fallback CFLAGS for non-standard paths.
+extra_cflags="$extra_cflags -I/usr/include/tirpc -I/usr/include/x86_64-linux-gnu"
+print_good "Build environment checks passed."
+
+print_status "Configuring Snort (options --prefix=$snort_basedir and --enable-sourcefire), making and installing. This will take a moment or two."
+./configure --prefix=$snort_basedir --libdir=$snort_basedir/lib --enable-sourcefire \
+    CFLAGS="-I/usr/include -I/usr/local/include $extra_cflags" LDFLAGS="-L/usr/local/lib -L/usr/lib" &>> $logfile
+error_check 'Configure Snort'
+
+print_status "Compiling Snort with verbose output (this may take a while)..."
+make V=1 &>> $logfile
+error_check 'Make Snort'
+
+make install &>> $logfile
+error_check 'Installation of Snort'
+
+dir_check /var/log/snort
+
+print_status "Checking for Snort user and group.."
+getent passwd snort &>> $logfile
+if [ $? -eq 0 ]; then
+    print_notification "Snort user exists. Verifying group exists.."
+    id -g snort &>> $logfile
+    if [ $? -eq 0 ]; then
+        print_notification "Snort group exists."
+    else
+        print_notification "Snort group does not exist. Creating.."
+        groupadd snort
+        usermod -G snort snort
+    fi
+else
+    print_status "Creating Snort user and group.."
+    groupadd snort
+    useradd -g snort snort -s /bin/false
+fi
+
+print_status "Tightening permissions to /var/log/snort.."
+chmod 770 /var/log/snort
+chown snort:snort /var/log/snort
+
+# Set permissions for Snort directories
+print_status "Setting permissions for Snort directories..."
+chown -R snort:snort $snort_basedir/etc $snort_basedir/rules $snort_basedir/so_rules $snort_basedir/preproc_rules $snort_basedir/snort_dynamicrules &>> $logfile
+chmod -R 660 $snort_basedir/etc/* $snort_basedir/rules/* $snort_basedir/so_rules/* $snort_basedir/preproc_rules/* $snort_basedir/snort_dynamicrules/* &>> $logfile
+error_check "Setting permissions for Snort directories"
+
+########################################
+# Configure Snort directories and snort.conf.
+dir_check $snort_basedir/etc
+dir_check $snort_basedir/so_rules
+dir_check $snort_basedir/rules
