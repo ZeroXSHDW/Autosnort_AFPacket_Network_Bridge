@@ -4,7 +4,7 @@
 # This script configures Snort and PulledPork with enhanced logging and debugging for rule downloads, targeting PulledPork 0.8.0
 # Modified to enhance verification of Perl modules (libwww-perl, libarchive-zip-perl, libcrypt-ssleay-perl, liblwp-protocol-https-perl)
 # PulledPork section reverted to original code from autosnort-ubuntu-AVATAR-orig.sh for version 0.8.0
-# Updated to avoid deprecated apt-key, using /etc/apt/trusted.gpg.d/ for GPG keys, with fallback for Ubuntu 18.04 compatibility
+# Updated GPG key import with retries, multiple keyservers, and fallback to ensure keys are trusted by apt
 
 # Logging setup. Uses FIFO/pipe to log all output to a file for troubleshooting.
 logfile=/var/log/autosnort_install.log
@@ -60,6 +60,95 @@ function install_packages()
     print_status "Updating package lists and installing packages: ${@}"
     apt-get update &>> $logfile && apt-get install -y "${@}" &>> $logfile
     error_check "Package installation for ${@}"
+}
+
+########################################
+# New function to import GPG keys with retries and multiple keyservers.
+function import_gpg_key()
+{
+    local key_id=$1
+    local key_file=$2
+    local keyservers=("hkp://keyserver.ubuntu.com:80" "hkp://pgp.mit.edu:80" "hkp://keys.openpgp.org:80")
+    local max_attempts=3
+    local attempt=1
+    local success=0
+
+    print_status "Importing GPG key $key_id..."
+
+    # Try each keyserver up to max_attempts times
+    while [ $attempt -le $max_attempts ] && [ $success -eq 0 ]; do
+        for keyserver in "${keyservers[@]}"; do
+            print_notification "Attempt $attempt: Retrieving key $key_id from $keyserver..."
+            gpg --keyserver "$keyserver" --recv-keys "$key_id" &>> $logfile
+            if [ $? -eq 0 ]; then
+                print_good "Successfully retrieved key $key_id from $keyserver"
+                # Verify key presence
+                gpg --list-keys "$key_id" &>> $logfile
+                if [ $? -eq 0 ]; then
+                    success=1
+                    break
+                else
+                    print_notification "Key $key_id retrieved but not found in keyring. Retrying..."
+                fi
+            else
+                print_notification "Failed to retrieve key $key_id from $keyserver."
+            fi
+        done
+        attempt=$((attempt + 1))
+        sleep 5
+    done
+
+    if [ $success -eq 0 ]; then
+        print_error "Failed to retrieve GPG key $key_id after $max_attempts attempts across multiple keyservers."
+        exit 1
+    fi
+
+    # Export key in ASCII-armored format
+    print_status "Exporting key $key_id to /etc/apt/trusted.gpg.d/$key_file.asc..."
+    gpg --export --armor "$key_id" > "/etc/apt/trusted.gpg.d/$key_file.asc" &>> $logfile
+    error_check "Export GPG key $key_id to /etc/apt/trusted.gpg.d/$key_file.asc"
+
+    # Export key in binary format as fallback
+    print_status "Exporting key $key_id to /etc/apt/trusted.gpg.d/$key_file.gpg..."
+    gpg --export "$key_id" > "/etc/apt/trusted.gpg.d/$key_file.gpg" &>> $logfile
+    error_check "Export GPG key $key_id to /etc/apt/trusted.gpg.d/$key_file.gpg"
+
+    # Set permissions
+    chmod 644 "/etc/apt/trusted.gpg.d/$key_file.asc" "/etc/apt/trusted.gpg.d/$key_file.gpg" &>> $logfile
+    error_check "Setting permissions for GPG key files $key_file"
+}
+
+########################################
+# New function to verify and ensure apt recognizes keys.
+function verify_apt_keyring()
+{
+    local key_id=$1
+    print_status "Verifying apt recognizes key $key_id..."
+
+    # Run apt-get update to test keyring
+    apt-get update &>> $logfile
+    if [ $? -ne 0 ]; then
+        print_notification "apt-get update failed. Checking for NO_PUBKEY $key_id..."
+        if grep -qi "NO_PUBKEY.*$key_id" $logfile; then
+            print_notification "Key $key_id not recognized by apt. Attempting fallback import to apt-key..."
+            # Fallback: Import to apt-key for Ubuntu 18.04 compatibility
+            gpg --export "$key_id" | apt-key add - &>> $logfile
+            if [ $? -eq 0 ]; then
+                print_good "Fallback: Successfully added key $key_id to apt keyring"
+                # Retry apt-get update
+                apt-get update &>> $logfile
+                error_check "apt-get update after fallback key import for $key_id"
+            else
+                print_error "Fallback: Failed to add key $key_id to apt keyring."
+                exit 1
+            fi
+        else
+            print_error "apt-get update failed for reasons other than missing key $key_id. Check $logfile."
+            exit 1
+        fi
+    else
+        print_good "apt-get update succeeded. Key $key_id is recognized."
+    fi
 }
 
 ########################################
@@ -208,57 +297,18 @@ else
     apt-get install -y gnupg &>> $logfile
     error_check 'Installation of gnupg'
 
-    # Import Ubuntu repository GPG keys to /etc/apt/trusted.gpg.d/
-    print_status "Importing Ubuntu repository GPG keys..."
-    
-    # Key 1: 3B4FE6ACC0B21F32
-    gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys 3B4FE6ACC0B21F32 &>> $logfile
-    if [ $? -eq 0 ]; then
-        print_good "Successfully retrieved GPG key 3B4FE6ACC0B21F32"
-        # Verify key presence
-        gpg --list-keys 3B4FE6ACC0B21F32 &>> $logfile
-        error_check 'Verification of GPG key 3B4FE6ACC0B21F32 presence'
-        # Export to /etc/apt/trusted.gpg.d/
-        gpg --export --armor 3B4FE6ACC0B21F32 > /etc/apt/trusted.gpg.d/ubuntu-key1.asc &>> $logfile
-        error_check 'Export GPG key 3B4FE6ACC0B21F32 to /etc/apt/trusted.gpg.d/ubuntu-key1.asc'
-    else
-        print_error "Failed to retrieve GPG key 3B4FE6ACC0B21F32. Check network or keyserver availability."
-        exit 1
-    fi
+    # Clear apt cache to avoid stale keyring issues
+    print_status "Clearing apt cache to ensure clean keyring..."
+    rm -rf /var/lib/apt/lists/* &>> $logfile
+    error_check 'Clearing apt cache'
 
-    # Key 2: 871920D1991BC93C
-    gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys 871920D1991BC93C &>> $logfile
-    if [ $? -eq 0 ]; then
-        print_good "Successfully retrieved GPG key 871920D1991BC93C"
-        # Verify key presence
-        gpg --list-keys 871920D1991BC93C &>> $logfile
-        error_check 'Verification of GPG key 871920D1991BC93C presence'
-        # Export to /etc/apt/trusted.gpg.d/
-        gpg --export --armor 871920D1991BC93C > /etc/apt/trusted.gpg.d/ubuntu-key2.asc &>> $logfile
-        error_check 'Export GPG key 871920D1991BC93C to /etc/apt/trusted.gpg.d/ubuntu-key2.asc'
-    else
-        print_error "Failed to retrieve GPG key 871920D1991BC93C. Check network or keyserver availability."
-        exit 1
-    fi
+    # Import Ubuntu repository GPG keys
+    import_gpg_key "3B4FE6ACC0B21F32" "ubuntu-key1"
+    import_gpg_key "871920D1991BC93C" "ubuntu-key2"
 
-    # Set permissions for GPG key files
-    chmod 644 /etc/apt/trusted.gpg.d/ubuntu-key*.asc &>> $logfile
-    error_check 'Setting permissions for GPG key files'
-
-    # Run apt-get update to refresh keyring
-    print_status "Running apt-get update to refresh keyring..."
-    apt-get update &>> $logfile
-    if [ $? -ne 0 ]; then
-        print_notification "apt-get update failed after key import. Attempting fallback key import to system keyring..."
-        # Fallback: Import keys directly to apt-key (for Ubuntu 18.04 compatibility)
-        gpg --export 3B4FE6ACC0B21F32 | apt-key add - &>> $logfile
-        error_check 'Fallback: Adding GPG key 3B4FE6ACC0B21F32 to apt'
-        gpg --export 871920D1991BC93C | apt-key add - &>> $logfile
-        error_check 'Fallback: Adding GPG key 871920D1991BC93C to apt'
-        # Try apt-get update again
-        apt-get update &>> $logfile
-        error_check 'apt-get update after fallback key import'
-    fi
+    # Verify keys are recognized by apt
+    verify_apt_keyring "3B4FE6ACC0B21F32"
+    verify_apt_keyring "871920D1991BC93C"
 
     print_notification 'This script assumes a default sources.list and changes all default repos to include universe. If you added third-party sources, re-enter them manually from /etc/apt/sources.list.bak into /etc/apt/sources.list.'
     
