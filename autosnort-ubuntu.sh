@@ -7,7 +7,8 @@
 # Updated GPG key import with retries, multiple keyservers, and fallback for apt keyring
 # Updated snort.conf download to use hardcoded URL with retries
 # Added validation checks for snort.conf, rules, and interfaces to prevent service startup failures
-# Fixed syntax error on line 376 (incomplete cp command) and ensured all blocks are closed
+# Fixed syntax error on line 376 (incomplete cp command)
+# Fixed permission-setting for Snort directories to handle missing or empty directories
 
 # Logging setup. Uses FIFO/pipe to log all output to a file for troubleshooting.
 logfile=/var/log/autosnort_install.log
@@ -263,6 +264,8 @@ function dir_check()
     if [ ! -d "$1" ]; then
         print_notification "$1 does not exist. Creating.."
         mkdir -p "$1"
+        chown snort:snort "$1" &>> $logfile
+        chmod 770 "$1" &>> $logfile
     else
         print_notification "$1 already exists."
     fi
@@ -299,6 +302,19 @@ if [ -z "$o_code" ] || ! [[ $o_code =~ ^[0-9a-fA-F]{40}$ ]]; then
 else
     print_good "Oinkcode format validated successfully."
 fi
+
+# Validate snort_basedir
+if [ -z "$snort_basedir" ]; then
+    print_error "snort_basedir is not defined in full_autosnort.conf. Please set it to a valid directory path."
+    exit 1
+fi
+if [ ! -d "$snort_basedir" ]; then
+    print_notification "snort_basedir ($snort_basedir) does not exist. Creating..."
+    mkdir -p "$snort_basedir"
+    chown root:root "$snort_basedir"
+    chmod 755 "$snort_basedir"
+fi
+print_good "snort_basedir validated: $snort_basedir"
 
 # Suppress package installation messages.
 export DEBIAN_FRONTEND=noninteractive
@@ -386,7 +402,7 @@ else
     error_check "Verification of Archive::Tar module"
 fi
 
-# Create symlink for libdumbnet.h to dnet.h for barnyard2 compatibility.
+# Create symlink for libdumbnet.h nutrto dnet.h for barnyard2 compatibility.
 if [ ! -h /usr/include/dnet.h ]; then
     print_status "Creating symlink for libdumbnet.h to dnet.h.."
     ln -s /usr/include/dumbnet.h /usr/include/dnet.h
@@ -643,14 +659,275 @@ print_status "Tightening permissions to /var/log/snort.."
 chmod 770 /var/log/snort
 chown snort:snort /var/log/snort
 
-# Set permissions for Snort directories
-print_status "Setting permissions for Snort directories..."
-chown -R snort:snort $snort_basedir/etc $snort_basedir/rules $snort_basedir/so_rules $snort_basedir/preproc_rules $snort_basedir/snort_dynamicrules &>> $logfile
-chmod -R 660 $snort_basedir/etc/* $snort_basedir/rules/* $snort_basedir/so_rules/* $snort_basedir/preproc_rules/* $snort_basedir/snort_dynamicrules/* &>> $logfile
-error_check "Setting permissions for Snort directories"
+# Create and set permissions for Snort directories
+print_status "Creating and setting permissions for Snort directories..."
+declare -a snort_dirs=("$snort_basedir/etc" "$snort_basedir/rules" "$snort_basedir/so_rules" "$snort_basedir/preproc_rules" "$snort_basedir/snort_dynamicrules" "$snort_basedir/rules/iplists")
+for dir in "${snort_dirs[@]}"; do
+    dir_check "$dir"
+    chown -R snort:snort "$dir" &>> $logfile
+    if [ $? -ne 0 ]; then
+        print_error "Failed to set ownership for $dir. Check $logfile for details."
+        exit 1
+    fi
+    # Set directory permissions
+    chmod 770 "$dir" &>> $logfile
+    # Set file permissions only if files exist
+    if ls "$dir"/* >/dev/null 2>&1; then
+        chmod -R 660 "$dir"/* &>> $logfile
+        if [ $? -ne 0 ]; then
+            print_error "Failed to set file permissions for $dir/*. Check $logfile for details."
+            exit 1
+        fi
+    else
+        print_notification "No files in $dir to set permissions for."
+    fi
+done
+print_good "Permissions set for Snort directories."
 
 ########################################
 # Configure Snort directories and snort.conf.
-dir_check $snort_basedir/etc
-dir_check $snort_basedir/so_rules
-dir_check $snort_basedir/rules
+touch $snort_basedir/rules/iplists/IPRVersion.dat
+
+print_status "Attempting to download snort.conf for $snortver.."
+for attempt in {1..3}; do
+    print_status "Download attempt $attempt for snort.conf from $primary_conf_url..."
+    wget --tries=2 --timeout=10 "$primary_conf_url" -O $snort_basedir/etc/snort.conf --no-check-certificate &>> $logfile
+    if [ $? -eq 0 ]; then
+        print_good "Successfully downloaded snort.conf from $primary_conf_url."
+        break
+    else
+        print_notification "Attempt $attempt failed for $primary_conf_url."
+        if [ $attempt -eq 3 ]; then
+            print_notification "Primary snort.conf download failed. Trying fallback URL: $fallback_conf_url..."
+            for fallback_attempt in {1..3}; do
+                print_status "Fallback download attempt $fallback_attempt for snort.conf from $fallback_conf_url..."
+                wget --tries=2 --timeout=10 "$fallback_conf_url" -O $snort_basedir/etc/snort.conf --no-check-certificate &>> $logfile
+                if [ $? -eq 0 ]; then
+                    print_good "Successfully downloaded snort.conf from $fallback_conf_url."
+                    break
+                else
+                    print_notification "Fallback attempt $fallback_attempt failed for $fallback_conf_url."
+                    if [ $fallback_attempt -eq 3 ]; then
+                        print_error "Failed to download snort.conf after 3 primary and 3 fallback attempts. Check $logfile for details."
+                        print_notification "Possible reasons: Network issues, unavailable file, or snort.org server restrictions."
+                        print_notification "Manual workaround: Download $primary_conf_url or $fallback_conf_url, place it in $snort_basedir/etc/snort.conf, then re-run the script."
+                        exit 1
+                    fi
+                    sleep 5
+                fi
+            done
+        fi
+        sleep 5
+    fi
+done
+
+print_status "ldconfig processing and creation of whitelist/blocklist.rules files taking place."
+touch $snort_basedir/rules/white_list.rules
+touch $snort_basedir/rules/black_list.rules
+ldconfig
+
+print_status "Modifying snort.conf -- specifying unified 2 output, SO whitelist/blocklist, and standard rule locations.."
+sed -i "s#dynamicpreprocessor directory /usr/local/lib/snort_dynamicpreprocessor#dynamicpreprocessor directory $snort_basedir/lib/snort_dynamicpreprocessor#" $snort_basedir/etc/snort.conf
+sed -i "s#dynamicengine /usr/local/lib/snort_dynamicengine/libsf_engine.so#dynamicengine $snort_basedir/lib/snort_dynamicengine/libsf_engine.so#" $snort_basedir/etc/snort.conf
+sed -i "s#dynamicdetection directory /usr/local/lib/snort_dynamicrules#dynamicdetection directory $snort_basedir/snort_dynamicrules#" $snort_basedir/etc/snort.conf
+sed -i "s/# output unified2: filename merged.log, limit 128, nostamp, mpls_event_types, vlan_event_types/output unified2: filename snort.u2, limit 128/" $snort_basedir/etc/snort.conf
+sed -i "s#var WHITE_LIST_PATH ../rules#var WHITE_LIST_PATH $snort_basedir/rules#" $snort_basedir/etc/snort.conf
+sed -i "s#var BLACK_LIST_PATH ../rules#var BLACK_LIST_PATH $snort_basedir/rules#" $snort_basedir/etc/snort.conf
+sed -i "s/include \$RULE\_PATH/#include \$RULE\_PATH/" $snort_basedir/etc/snort.conf
+echo "# unified snort.rules entry" >> $snort_basedir/etc/snort.conf
+echo "include \$RULE_PATH/snort.rules" >> $snort_basedir/etc/snort.conf
+
+# Create dummy files for Snort to generate SO rule stubs.
+touch $snort_basedir/etc/reference.config
+touch $snort_basedir/etc/classification.config
+cp /usr/src/$snortver/etc/unicode.map $snort_basedir/etc/unicode.map
+touch $snort_basedir/etc/threshold.conf
+touch $snort_basedir/rules/snort.rules
+
+print_good "snort.conf configured. Location: $snort_basedir/etc/snort.conf"
+
+# Install PulledPork.
+cd /usr/src
+if [ -d /usr/src/pulledpork ]; then
+    print_notification "Removing existing PulledPork directory to ensure fresh clone.."
+    rm -rf /usr/src/pulledpork
+fi
+
+# Verify Perl and required modules.
+print_status "Verifying Perl and required modules for PulledPork.."
+which perl &>> $logfile
+if [ $? -ne 0 ]; then
+    print_error "Perl not found. Install perl package with: sudo apt-get install perl"
+    exit 1
+fi
+
+# Define required Perl modules and their corresponding packages
+declare -A module_to_package=(
+    ["LWP::UserAgent"]="libwww-perl"
+    ["Archive::Tar"]="libarchive-zip-perl"
+    ["Crypt::SSLeay"]="libcrypt-ssleay-perl"
+    ["LWP::Protocol::https"]="liblwp-protocol-https-perl"
+)
+
+# Check each module and attempt reinstallation if missing
+for module in "${!module_to_package[@]}"; do
+    print_status "Checking Perl module $module..."
+    perl -M"$module" -e 'exit 0' &>> $logfile
+    if [ $? -ne 0 ]; then
+        print_notification "Perl module $module not found. Attempting to install ${module_to_package[$module]}..."
+        apt-get install -y ${module_to_package[$module]} &>> $logfile
+        if [ $? -ne 0 ]; then
+            print_error "Failed to install ${module_to_package[$module]}. Install manually with: sudo apt-get install ${module_to_package[$module]}"
+            exit 1
+        fi
+        # Re-verify module after installation
+        perl -M"$module" -e 'exit 0' &>> $logfile
+        if [ $? -ne 0 ]; then
+            print_error "Perl module $module still not found after installation attempt."
+            print_notification "Try installing via CPAN: sudo cpan install $module"
+            exit 1
+        else
+            print_good "Perl module $module installed and verified."
+        fi
+    else
+        print_good "Perl module $module is available."
+    fi
+done
+
+print_status "Acquiring Pulled Pork.."
+git clone https://github.com/shirkdog/pulledpork.git &>> $logfile
+error_check 'Download of pulledpork'
+
+print_good "Pulledpork successfully installed to /usr/src."
+
+print_status "Generating pulledpork.conf."
+cd pulledpork/etc
+
+# Create a copy of the original conf file (in case the user needs it).
+cp pulledpork.conf pulledpork.conf.orig &>> $logfile
+error_check 'Backup of pulledpork.conf'
+
+# Adjust Snort version for PulledPork (expects 4-digit version, e.g., 2.9.20.0).
+snortverperiods=$(echo $snortver | fgrep -o . | wc -l)
+if [ $snortverperiods -eq 2 ]; then
+    ppsnortver=$snortver.0
+else
+    ppsnortver=$snortver
+fi
+
+# Generate pulledpork.conf compatible with PulledPork 0.8.0.
+echo "rule_url=https://www.snort.org/reg-rules/|snortrules-snapshot.tar.gz|$o_code" > pulledpork.tmp
+echo "rule_url=https://snort.org/downloads/community/|opensource.gz|Opensource" >> pulledpork.tmp
+echo "rule_url=https://snort.org/downloads/community/|community-rules.tar.gz|Community" >> pulledpork.tmp
+echo "rule_url=https://snort.org/downloads/ip-block-list|IPBLOCKLIST|open" >> pulledpork.tmp
+echo "ignore=deleted.rules,experimental.rules,local.rules" >> pulledpork.tmp
+echo "temp_path=/tmp" >> pulledpork.tmp
+echo "rule_path=$snort_basedir/rules/snort.rules" >> pulledpork.tmp
+echo "local_rules=$snort_basedir/rules/local.rules" >> pulledpork.tmp
+echo "sid_msg=$snort_basedir/etc/sid-msg.map" >> pulledpork.tmp
+echo "sid_msg_version=1" >> pulledpork.tmp
+echo "sid_changelog=/var/log/sid_changes.log" >> pulledpork.tmp
+echo "sorule_path=$snort_basedir/snort_dynamicrules/" >> pulledpork.tmp
+echo "snort_path=$snort_basedir/bin/snort" >> pulledpork.tmp
+echo "snort_version=$(echo $ppsnortver | cut -d'-' -f2)" >> pulledpork.tmp
+echo "distro=$distro" >> pulledpork.tmp
+echo "config_path=$snort_basedir/etc/snort.conf" >> pulledpork.tmp
+echo "black_list=$snort_basedir/rules/black_list.rules" >> pulledpork.tmp
+echo "IPRVersion=$snort_basedir/rules/iplists" >> pulledpork.tmp
+echo "ips_policy=security" >> pulledpork.tmp
+echo "version=0.8.0" >> pulledpork.tmp
+cp pulledpork.tmp pulledpork.conf &>> $logfile
+error_check 'Generation of pulledpork.conf'
+
+# Verify pulledpork.conf existence, readability, and permissions.
+if [ ! -f /usr/src/pulledpork/etc/pulledpork.conf ]; then
+    print_error "pulledpork.conf not found at /usr/src/pulledpork/etc/pulledpork.conf."
+    exit 1
+fi
+if [ ! -r /usr/src/pulledpork/etc/pulledpork.conf ]; then
+    print_error "pulledpork.conf at /usr/src/pulledpork/etc/pulledpork.conf is not readable."
+    exit 1
+fi
+chmod 644 /usr/src/pulledpork/etc/pulledpork.conf &>> $logfile
+error_check 'Setting permissions for pulledpork.conf'
+
+# Run PulledPork.
+cd /usr/src/pulledpork
+print_status "Attempting to download rules for $ppsnortver.."
+print_notification "If this hangs, please make sure you set the HTTP_PROXY, http_proxy, HTTPS_PROXY, and https_proxy variables as required!"
+perl pulledpork.pl -W -vv -P -c /usr/src/pulledpork/etc/pulledpork.conf &>> $logfile
+if [ $? == 0 ]; then
+    pp_postprocessing
+else
+    print_error "Rule download for $ppsnortver has failed. Check $logfile, Troubleshoot your connectivity issues to snort.org, and ensure you wait a minimum of 15 minutes before trying again."
+    exit 1
+fi
+
+# Validate Snort configuration before enabling service
+validate_snort_config
+
+########################################
+# Disable network offloading options.
+print_notification "Disabling offloading options on the sniffing interfaces.."
+ethtool -K $snort_iface_1 rx off &>> $logfile
+ethtool -K $snort_iface_1 tx off &>> $logfile
+ethtool -K $snort_iface_1 sg off &>> $logfile
+ethtool -K $snort_iface_1 tso off &>> $logfile
+ethtool -K $snort_iface_1 ufo off &>> $logfile
+ethtool -K $snort_iface_1 gso off &>> $logfile
+ethtool -K $snort_iface_1 gro off &>> $logfile
+ethtool -K $snort_iface_1 lro off &>> $logfile
+ethtool -K $snort_iface_2 rx off &>> $logfile
+ethtool -K $snort_iface_2 tx off &>> $logfile
+ethtool -K $snort_iface_2 sg off &>> $logfile
+ethtool -K $snort_iface_2 tso off &>> $logfile
+ethtool -K $snort_iface_2 ufo off &>> $logfile
+ethtool -K $snort_iface_2 gso off &>> $logfile
+ethtool -K $snort_iface_2 gro off &>> $logfile
+ethtool -K $snort_iface_2 lro off &>> $logfile
+
+########################################
+# Install systemd service.
+cd "$execdir"
+if [ -f /etc/systemd/system/snortd.service ]; then
+    print_notification "Snortd init script already installed."
+else
+    if [ ! -f "$execdir/snortd.service" ]; then
+        print_error "Unable to find $execdir/snortd.service. Please ensure the snortd.service file is there and try again."
+        exit 1
+    else
+        print_good "Found snortd systemd service script. Configuring.."
+    fi
+    
+    cp snortd.service snortd_2 &>> $logfile
+    sed -i "s#snort_basedir#$snort_basedir#g" snortd_2
+    sed -i "s#snort_iface1#$snort_iface_1#g" snortd_2
+    sed -i "s#snort_iface2#$snort_iface_2#g" snortd_2
+    # Add verbose output and logging
+    sed -i "s#ExecStart=.*#ExecStart=$snort_basedir/bin/snort -u snort -g snort -c $snort_basedir/etc/snort.conf -i $snort_iface_1:$snort_iface_2 -v -D --pid-path=/var/run --create-pidfile -l /var/log/snort#g" snortd_2
+    cp snortd_2 /etc/systemd/system/snortd.service &>> $logfile
+    chown root:root /etc/systemd/system/snortd.service &>> $logfile
+    chmod 700 /etc/systemd/system/snortd.service &>> $logfile
+    systemctl daemon-reload &>> $logfile
+    error_check 'snortd.service installation'
+    print_notification "Location: /etc/systemd/system/snortd.service"
+    systemctl enable snortd.service &>> $logfile
+    error_check 'snortd.service enable'
+    rm -rf snortd_2 &>> $logfile
+fi
+
+# Start and verify snortd service
+print_status "Starting snortd service..."
+systemctl start snortd.service &>> $logfile
+if [ $? -ne 0 ]; then
+    print_error "Failed to start snortd service. Check systemctl status snortd.service and /var/log/snort for details."
+    exit 1
+fi
+print_good "snortd service started successfully."
+
+########################################
+print_status "Rebooting now.."
+init 6
+print_notification "The log file for Autosnort is located at: $logfile"
+print_good "We're all done here. Have a nice day."
+exit 0
