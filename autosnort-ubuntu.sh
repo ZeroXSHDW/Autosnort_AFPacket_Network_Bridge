@@ -4,7 +4,7 @@
 # This script configures Snort and PulledPork with enhanced logging and debugging for rule downloads, targeting PulledPork 0.8.0
 # Modified to enhance verification of Perl modules (libwww-perl, libarchive-zip-perl, libcrypt-ssleay-perl, liblwp-protocol-https-perl)
 # PulledPork section reverted to original code from autosnort-ubuntu-AVATAR-orig.sh for version 0.8.0
-# Updated to avoid deprecated apt-key, using /etc/apt/trusted.gpg.d/ for GPG keys
+# Updated to avoid deprecated apt-key, using /etc/apt/trusted.gpg.d/ for GPG keys, with fallback for Ubuntu 18.04 compatibility
 
 # Logging setup. Uses FIFO/pipe to log all output to a file for troubleshooting.
 logfile=/var/log/autosnort_install.log
@@ -203,21 +203,62 @@ else
     echo -e "deb http://archive.ubuntu.com/ubuntu bionic main universe restricted multiverse\ndeb http://archive.ubuntu.com/ubuntu bionic-security main universe restricted multiverse\ndeb http://archive.ubuntu.com/ubuntu bionic-updates main universe restricted multiverse" > /etc/apt/sources.list
     error_check 'Modification of /etc/apt/sources.list'
 
+    # Ensure gnupg is installed for GPG operations
+    print_status "Ensuring gnupg is installed for GPG key management..."
+    apt-get install -y gnupg &>> $logfile
+    error_check 'Installation of gnupg'
+
     # Import Ubuntu repository GPG keys to /etc/apt/trusted.gpg.d/
     print_status "Importing Ubuntu repository GPG keys..."
+    
+    # Key 1: 3B4FE6ACC0B21F32
     gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys 3B4FE6ACC0B21F32 &>> $logfile
-    error_check 'Retrieval of GPG key 3B4FE6ACC0B21F32'
-    gpg --export --armor 3B4FE6ACC0B21F32 > /etc/apt/trusted.gpg.d/ubuntu-key1.asc &>> $logfile
-    error_check 'Export GPG key 3B4FE6ACC0B21F32 to /etc/apt/trusted.gpg.d/ubuntu-key1.asc'
+    if [ $? -eq 0 ]; then
+        print_good "Successfully retrieved GPG key 3B4FE6ACC0B21F32"
+        # Verify key presence
+        gpg --list-keys 3B4FE6ACC0B21F32 &>> $logfile
+        error_check 'Verification of GPG key 3B4FE6ACC0B21F32 presence'
+        # Export to /etc/apt/trusted.gpg.d/
+        gpg --export --armor 3B4FE6ACC0B21F32 > /etc/apt/trusted.gpg.d/ubuntu-key1.asc &>> $logfile
+        error_check 'Export GPG key 3B4FE6ACC0B21F32 to /etc/apt/trusted.gpg.d/ubuntu-key1.asc'
+    else
+        print_error "Failed to retrieve GPG key 3B4FE6ACC0B21F32. Check network or keyserver availability."
+        exit 1
+    fi
 
+    # Key 2: 871920D1991BC93C
     gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys 871920D1991BC93C &>> $logfile
-    error_check 'Retrieval of GPG key 871920D1991BC93C'
-    gpg --export --armor 871920D1991BC93C > /etc/apt/trusted.gpg.d/ubuntu-key2.asc &>> $logfile
-    error_check 'Export GPG key 871920D1991BC93C to /etc/apt/trusted.gpg.d/ubuntu-key2.asc'
+    if [ $? -eq 0 ]; then
+        print_good "Successfully retrieved GPG key 871920D1991BC93C"
+        # Verify key presence
+        gpg --list-keys 871920D1991BC93C &>> $logfile
+        error_check 'Verification of GPG key 871920D1991BC93C presence'
+        # Export to /etc/apt/trusted.gpg.d/
+        gpg --export --armor 871920D1991BC93C > /etc/apt/trusted.gpg.d/ubuntu-key2.asc &>> $logfile
+        error_check 'Export GPG key 871920D1991BC93C to /etc/apt/trusted.gpg.d/ubuntu-key2.asc'
+    else
+        print_error "Failed to retrieve GPG key 871920D1991BC93C. Check network or keyserver availability."
+        exit 1
+    fi
 
     # Set permissions for GPG key files
     chmod 644 /etc/apt/trusted.gpg.d/ubuntu-key*.asc &>> $logfile
     error_check 'Setting permissions for GPG key files'
+
+    # Run apt-get update to refresh keyring
+    print_status "Running apt-get update to refresh keyring..."
+    apt-get update &>> $logfile
+    if [ $? -ne 0 ]; then
+        print_notification "apt-get update failed after key import. Attempting fallback key import to system keyring..."
+        # Fallback: Import keys directly to apt-key (for Ubuntu 18.04 compatibility)
+        gpg --export 3B4FE6ACC0B21F32 | apt-key add - &>> $logfile
+        error_check 'Fallback: Adding GPG key 3B4FE6ACC0B21F32 to apt'
+        gpg --export 871920D1991BC93C | apt-key add - &>> $logfile
+        error_check 'Fallback: Adding GPG key 871920D1991BC93C to apt'
+        # Try apt-get update again
+        apt-get update &>> $logfile
+        error_check 'apt-get update after fallback key import'
+    fi
 
     print_notification 'This script assumes a default sources.list and changes all default repos to include universe. If you added third-party sources, re-enter them manually from /etc/apt/sources.list.bak into /etc/apt/sources.list.'
     
