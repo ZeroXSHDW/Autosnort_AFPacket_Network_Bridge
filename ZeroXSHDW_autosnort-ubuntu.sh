@@ -296,14 +296,22 @@ done
 # Pre-checks: Ensure config file exists and script is run as root.
 print_status "Checking for config file.."
 execdir=$(pwd)
-if [ ! -f "$execdir/full_autosnort.conf" ]; then
-    print_error "full_autosnort.conf was NOT found in $execdir. The script relies HEAVILY on this config file. Please make sure it is in the same directory you are executing the autosnort-ubuntu script from!"
-    exit 1
+conf_file="$execdir/full_autosnort.conf"
+local_conf="$execdir/full_autosnort.conf.local"
+if [ -f "$local_conf" ]; then
+    conf_file="$local_conf"
+    print_good "Using local override (gitignored): $local_conf"
+elif [ -f "$conf_file" ]; then
+    print_good "Found config file at $conf_file."
 else
-    print_good "Found config file at $execdir/full_autosnort.conf."
+    print_error "ABORT: Neither full_autosnort.conf nor full_autosnort.conf.local found in $execdir."
+    print_notification "Copy the example full_autosnort.conf next to this script, fill o_code/interfaces, then re-run from that directory."
+    print_notification "Prefer full_autosnort.conf.local for secrets (gitignored)."
+    exit 1
 fi
 
-source "$execdir/full_autosnort.conf"
+# shellcheck source=/dev/null
+source "$conf_file"
 
 print_status "Checking for root privs.."
 if [ "$(whoami)" != "root" ]; then
@@ -340,20 +348,34 @@ else
     distro="Ubuntu-18-04"
 fi
 
-# Validate oinkcode format (40-character hexadecimal).
-if [ -z "$o_code" ] || ! [[ $o_code =~ ^[0-9a-fA-F]{40}$ ]]; then
-    print_error "Invalid or missing oinkcode in full_autosnort.conf. It must be a 40-character hexadecimal string."
-    print_notification "Obtain a valid oinkcode from https://www.snort.org/users/sign_in and update o_code in $execdir/full_autosnort.conf."
+# Validate oinkcode format (40-character hexadecimal) before any apt/network work.
+if [ -z "${o_code:-}" ]; then
+    print_error "ABORT: o_code is empty in $conf_file."
+    print_notification "Register at https://www.snort.org/users/sign_in, copy your 40-char oinkcode, set o_code=..., then re-run."
+    print_notification "Keep secrets out of git: use full_autosnort.conf.local (gitignored) or chmod 600 the conf on the VM only."
     exit 1
-else
-    print_good "Oinkcode format validated successfully."
 fi
+if ! [[ $o_code =~ ^[0-9a-fA-F]{40}$ ]]; then
+    print_error "ABORT: Invalid o_code in $conf_file (got ${#o_code} chars; need exactly 40 hex digits)."
+    print_notification "Example format: o_code=0123456789abcdef0123456789abcdef01234567"
+    print_notification "Obtain a valid oinkcode from https://www.snort.org/users/sign_in and update o_code in $conf_file."
+    exit 1
+fi
+print_good "Oinkcode format validated successfully."
 
 # Validate snort_basedir
-if [ -z "$snort_basedir" ]; then
-    print_error "snort_basedir is not defined in full_autosnort.conf. Please set it to a valid directory path."
+if [ -z "${snort_basedir:-}" ]; then
+    print_error "ABORT: snort_basedir is not defined in $conf_file."
+    print_notification "Set snort_basedir to an absolute path with no trailing slash (example: snort_basedir=/opt/snort)."
     exit 1
 fi
+case "$snort_basedir" in
+    /*) ;;
+    *)
+        print_error "ABORT: snort_basedir must be an absolute path (got: $snort_basedir)."
+        exit 1
+        ;;
+esac
 if [ ! -d "$snort_basedir" ]; then
     print_notification "snort_basedir ($snort_basedir) does not exist. Creating..."
     mkdir -p "$snort_basedir"
@@ -361,6 +383,28 @@ if [ ! -d "$snort_basedir" ]; then
     chmod 755 "$snort_basedir"
 fi
 print_good "snort_basedir validated: $snort_basedir"
+
+# Validate bridge interfaces early (before long package installs).
+print_status "Validating snort_iface_1 / snort_iface_2 from $conf_file..."
+if [ -z "${snort_iface_1:-}" ] || [ -z "${snort_iface_2:-}" ]; then
+    print_error "ABORT: snort_iface_1 and snort_iface_2 must both be set in $conf_file."
+    print_notification "Example: snort_iface_1=eth1  snort_iface_2=eth2  (check with: ip link show)"
+    exit 1
+fi
+if [ "$snort_iface_1" = "$snort_iface_2" ]; then
+    print_error "ABORT: snort_iface_1 and snort_iface_2 must be different interfaces (both set to $snort_iface_1)."
+    exit 1
+fi
+for iface in "$snort_iface_1" "$snort_iface_2"; do
+    if ! ip link show "$iface" &>> "$logfile"; then
+        print_error "ABORT: Network interface '$iface' does not exist on this host."
+        print_notification "List interfaces with: ip -br link show"
+        print_notification "Update snort_iface_1 / snort_iface_2 in $conf_file to match your IPS NICs, then re-run."
+        exit 1
+    fi
+    print_good "Interface $iface exists."
+done
+print_good "Bridge interfaces validated: $snort_iface_1 <-> $snort_iface_2"
 
 # Suppress package installation messages.
 export DEBIAN_FRONTEND=noninteractive

@@ -5,11 +5,17 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Logs and local config secrets
+# Logs and local config secrets (never commit oinkcodes)
 *.log
 *.tmp
 *.bak
 full_autosnort.conf.local
+*.conf.local
+*.oinkcode
+.env
+.env.*
+secrets/
+o_code.txt
 
 # Build / temp
 *.o

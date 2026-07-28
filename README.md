@@ -23,7 +23,7 @@ Key features:
 - `ZeroXSHDW_autosnort-ubuntu.sh`: Enhanced script for installing and configuring Snort with AFPACKET bridging.
 - `ORIG_DA667_autosnort-ubuntu-AVATAR.sh`: Original script from da667/Autosnort (included for reference, not recommended for use).
 - `ORIG_DA667_readme.txt`: Original Autosnort README retained for reference.
-- `full_autosnort.conf`: Example configuration template (empty `o_code`, default paths). Fill in a real Oinkcode on the lab VM only; do not commit secrets. Optional local override name `full_autosnort.conf.local` is gitignored.
+- `full_autosnort.conf`: Example configuration template (empty `o_code`, default paths). Fill in a real Oinkcode on the lab VM only; do not commit secrets. Prefer `full_autosnort.conf.local` for secrets (gitignored; used automatically when present).
 - `snortd.service`: Systemd service file for Snort.
 - `LICENSE`: MIT License (Copyright 2026 ZeroXSHDW).
 - `README.md`: This file, providing setup instructions and references.
@@ -75,8 +75,8 @@ Key features:
 
 ### Step 2: Configure full_autosnort.conf
 1. **Create the Configuration File**:
-   - Copy `full_autosnort.conf` to the same directory as `ZeroXSHDW_autosnort-ubuntu.sh`.
-   - Edit `full_autosnort.conf` with a valid Oinkcode and interface names:
+   - Copy `full_autosnort.conf` to the same directory as `ZeroXSHDW_autosnort-ubuntu.sh`, or create a gitignored `full_autosnort.conf.local` (preferred for secrets; the script prefers `.local` when present).
+   - Edit with a valid Oinkcode and interface names:
      ```bash
      o_code="your_40_char_oinkcode"  # Obtain from snort.org
      snort_basedir="/opt/snort"
@@ -85,17 +85,16 @@ Key features:
      ```
    - Example command to edit:
      ```bash
-     nano full_autosnort.conf
+     cp full_autosnort.conf full_autosnort.conf.local
+     nano full_autosnort.conf.local
+     chmod 600 full_autosnort.conf.local
      ```
-   - Secure the file after editing:
-     ```bash
-     chmod 600 full_autosnort.conf
-     ```
+   - Do not commit real oinkcodes. The template `full_autosnort.conf` in git must keep `o_code=` empty.
 
 2. **Obtain an Oinkcode**:
    - Register at [snort.org](https://www.snort.org/users/sign_in).
    - Log in, navigate to your account settings, and copy the 40-character Oinkcode.
-   - Paste it into `o_code` in `full_autosnort.conf`.
+   - Paste it into `o_code` in your local conf (prefer `full_autosnort.conf.local`).
 
 ### Step 3: Run the Script
 1. **Copy Files to the VM**:
@@ -214,11 +213,23 @@ The `ZeroXSHDW_autosnort-ubuntu.sh` script addresses these issues:
 - **Systemd Enhancements**: Adds verbose output and logging to `snortd.service`.
 
 ## Troubleshooting
-- **Script Fails**:
+
+### Ubuntu / OS gate aborts
+- **Unsupported Ubuntu version**: Script targets 18.04 or 20.04 only. On other releases it exits before rewriting apt sources. Re-run with `--force` only if you accept that `/etc/apt/sources.list` may be replaced with bionic repos.
+- **`lsb_release` missing**: Install `lsb-release` or use a stock Ubuntu Server image from the book.
+
+### Configuration aborts (before long installs)
+- **Missing `full_autosnort.conf`**: Must sit in the same directory you run the script from (`pwd`).
+- **Empty / invalid `o_code`**: Must be exactly 40 hex characters from [snort.org](https://www.snort.org/users/sign_in). Do not commit real oinkcodes; prefer `full_autosnort.conf.local` (gitignored) or edit only on the VM with `chmod 600`.
+- **`snort_basedir`**: Must be an absolute path (e.g. `/opt/snort`).
+- **Interfaces**: `snort_iface_1` and `snort_iface_2` must exist and differ. Confirm with `ip -br link show` before re-running.
+
+### Install / runtime failures
+- **Script Fails mid-install**:
   - Check `/var/log/autosnort_install.log` for errors.
   - Verify internet connectivity to [snort.org](https://www.snort.org).
   - Ensure `o_code` is valid (40-character hexadecimal).
-  - Confirm `eth1` and `eth2` exist (`ip link show`).
+  - Confirm `eth1` and `eth2` (or your configured names) exist (`ip link show`).
 - **Snort Fails to Start**:
   - Check `systemctl status snortd.service`.
   - Test `snort.conf`:
