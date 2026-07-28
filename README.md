@@ -2,6 +2,8 @@
 
 This repository provides a script to install and configure Snort as an Intrusion Prevention System (IPS) with AFPACKET bridging on Ubuntu 18.04 or 20.04, specifically designed for cybersecurity labs as outlined in *Building Virtual Machine Labs: A Hands-On Guide* by Tony Robinson (ISBN-13: 978-1546932635). The script creates a network fail-safe killswitch to prevent malware exposure to the host system, critical for safe malware analysis and penetration testing labs.
 
+> **End-of-life warning:** Ubuntu 18.04 and 20.04 are past (or past standard) support, and Snort 2.9 is a legacy IDS line. Use this stack only for matching lab VMs from the book—not production. On unsupported Ubuntu releases the installer aborts unless you pass `--force` (which may rewrite `/etc/apt/sources.list`).
+
 The original script, `ORIG_DA667_autosnort-ubuntu-AVATAR.sh` from [da667/Autosnort](https://github.com/da667/Autosnort/tree/master/Autosnort-Ubuntu/AVATAR), is included but is outdated and broken due to changes in package repositories, Snort versions, and dependency management. The updated script, `ZeroXSHDW_autosnort-ubuntu.sh`, fixes these issues, ensuring reliable installation of Snort with AFPACKET bridging.
 
 ## Overview
@@ -21,7 +23,7 @@ Key features:
 - `ZeroXSHDW_autosnort-ubuntu.sh`: Enhanced script for installing and configuring Snort with AFPACKET bridging.
 - `ORIG_DA667_autosnort-ubuntu-AVATAR.sh`: Original script from da667/Autosnort (included for reference, not recommended for use).
 - `ORIG_DA667_readme.txt`: Original Autosnort README retained for reference.
-- `full_autosnort.conf`: Configuration file for specifying Snort installation directory, interfaces, and Oinkcode.
+- `full_autosnort.conf`: Example configuration template (empty `o_code`, default paths). Fill in a real Oinkcode on the lab VM only; do not commit secrets. Optional local override name `full_autosnort.conf.local` is gitignored.
 - `snortd.service`: Systemd service file for Snort.
 - `LICENSE`: MIT License (Copyright 2026 ZeroXSHDW).
 - `README.md`: This file, providing setup instructions and references.
@@ -34,7 +36,7 @@ Key features:
 - **Network Interfaces**: At least three network interfaces for the IPS VM (one for management, two for bridging).
 
 ### Software Requirements
-- **Operating System**: Ubuntu Server 18.04 or 20.04 LTS.
+- **Operating System**: Ubuntu Server 18.04 or 20.04 LTS only (both are EOL for general use; see warning above). Other releases require `--force`.
 - **Hypervisor**: VirtualBox, Hyper-V, VMware Workstation Pro, VMware Fusion Pro, or VMware vSphere (ESXi).
 - **Snort Oinkcode**: Register at [snort.org](https://www.snort.org/users/sign_in) to obtain a 40-character Oinkcode.
 - **Network Configuration**: As per *Building Virtual Machine Labs*:
@@ -115,6 +117,8 @@ Key features:
    - Run the script as root:
      ```bash
      sudo bash ZeroXSHDW_autosnort-ubuntu.sh
+     # Unsupported Ubuntu only (dangerous — may rewrite apt sources):
+     # sudo bash ZeroXSHDW_autosnort-ubuntu.sh --force
      ```
    - The script will:
      - Install dependencies (e.g., libdumbnet-dev, libpcap-dev, Perl modules).

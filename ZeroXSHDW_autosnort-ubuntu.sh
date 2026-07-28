@@ -274,6 +274,25 @@ function dir_check()
 ########################################
 ## BEGIN MAIN SCRIPT ##
 
+# Optional flags (parsed before apt / sources.list changes).
+FORCE=0
+for arg in "$@"; do
+    case "$arg" in
+        --force)
+            FORCE=1
+            ;;
+        -h|--help)
+            echo "Usage: sudo bash ZeroXSHDW_autosnort-ubuntu.sh [--force]"
+            echo "  --force  Continue on unsupported Ubuntu versions (may rewrite apt sources)"
+            exit 0
+            ;;
+        *)
+            print_error "Unknown argument: $arg (supported: --force, --help)"
+            exit 1
+            ;;
+    esac
+done
+
 # Pre-checks: Ensure config file exists and script is run as root.
 print_status "Checking for config file.."
 execdir=$(pwd)
@@ -292,6 +311,33 @@ if [ "$(whoami)" != "root" ]; then
     exit 1
 else
     print_good "We are root."
+fi
+
+########################################
+# Ubuntu version gate (before apt update / sources.list rewrite).
+# Non-20.04 paths may replace /etc/apt/sources.list with Ubuntu bionic repos.
+print_status "OS Version Check.."
+if ! command -v lsb_release >/dev/null 2>&1; then
+    print_error "lsb_release not found. This script targets Ubuntu 18.04 or 20.04."
+    exit 1
+fi
+release=$(lsb_release -r | awk '{print $2}')
+if [[ $release == "18."* || $release == "20."* ]]; then
+    print_good "OS is Ubuntu $release. Good to go."
+    if [[ $release == "18."* ]]; then
+        distro="Ubuntu-18-04"
+    else
+        distro="Ubuntu-20-04"
+    fi
+else
+    print_error "Unsupported Ubuntu version: $release (supported: 18.04, 20.04)."
+    print_notification "On unsupported releases this script may rewrite /etc/apt/sources.list and break the system."
+    print_notification "Re-run with --force only if you understand the risk."
+    if [[ $FORCE -ne 1 ]]; then
+        exit 1
+    fi
+    print_notification "Continuing due to --force (fallback packaging path: Ubuntu 18.04 / bionic)."
+    distro="Ubuntu-18-04"
 fi
 
 # Validate oinkcode format (40-character hexadecimal).
@@ -323,23 +369,6 @@ export DEBIAN_FRONTEND=noninteractive
 print_status "Performing apt-get update and upgrade (May take a while if this is a fresh install).."
 apt-get update &>> $logfile && apt-get -y upgrade &>> $logfile
 error_check 'System updates'
-
-########################################
-# OS version check.
-print_status "OS Version Check.."
-release=$(lsb_release -r | awk '{print $2}')
-if [[ $release == "18."* || $release == "20."* ]]; then
-    print_good "OS is Ubuntu $release. Good to go."
-    if [[ $release == "18."* ]]; then
-        distro="Ubuntu-18-04"
-    else
-        distro="Ubuntu-20-04"
-    fi
-else
-    print_notification "This is not Ubuntu 18.x or 20.x (detected $release), this script has NOT been tested on other platforms."
-    print_notification "You continue at your own risk! (Please report your successes or failures!)"
-    distro="Ubuntu-18-04" # Fallback for non-standard Ubuntu versions
-fi
 
 ########################################
 # Install required packages for Snort, DAQ, and PulledPork.

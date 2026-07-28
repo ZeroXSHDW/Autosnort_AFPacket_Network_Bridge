@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  bash-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bash syntax check
+        run: |
+          set -euo pipefail
+          mapfile -t scripts < <(find . -type f -name '*.sh' ! -path './.git/*' | sort)
+          if [[ ${#scripts[@]} -eq 0 ]]; then
+            echo "No shell scripts found"
+            exit 1
+          fi
+          for script in "${scripts[@]}"; do
+            echo "Checking $script"
+            bash -n "$script"
+          done
+          echo "All ${#scripts[@]} scripts passed bash -n"
