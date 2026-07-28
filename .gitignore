@@ -1,0 +1,17 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*~
+.idea/
+.vscode/
+
+# Logs and local config secrets
+*.log
+*.tmp
+*.bak
+full_autosnort.conf.local
+
+# Build / temp
+*.o
+*.so
+*.a

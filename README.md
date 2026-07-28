@@ -2,7 +2,7 @@
 
 This repository provides a script to install and configure Snort as an Intrusion Prevention System (IPS) with AFPACKET bridging on Ubuntu 18.04 or 20.04, specifically designed for cybersecurity labs as outlined in *Building Virtual Machine Labs: A Hands-On Guide* by Tony Robinson (ISBN-13: 978-1546932635). The script creates a network fail-safe killswitch to prevent malware exposure to the host system, critical for safe malware analysis and penetration testing labs.
 
-The original script, `autosnort-ubuntu-AVATAR.sh` from [da667/Autosnort](https://github.com/da667/Autosnort/tree/master/Autosnort-Ubuntu/AVATAR), is included but is outdated and broken due to changes in package repositories, Snort versions, and dependency management. The updated script, `ZeroXSHDW_autosnort-ubuntu.sh`, fixes these issues, ensuring reliable installation of Snort with AFPACKET bridging.
+The original script, `ORIG_DA667_autosnort-ubuntu-AVATAR.sh` from [da667/Autosnort](https://github.com/da667/Autosnort/tree/master/Autosnort-Ubuntu/AVATAR), is included but is outdated and broken due to changes in package repositories, Snort versions, and dependency management. The updated script, `ZeroXSHDW_autosnort-ubuntu.sh`, fixes these issues, ensuring reliable installation of Snort with AFPACKET bridging.
 
 ## Overview
 
@@ -19,9 +19,11 @@ Key features:
 ## Repository Contents
 
 - `ZeroXSHDW_autosnort-ubuntu.sh`: Enhanced script for installing and configuring Snort with AFPACKET bridging.
-- `autosnort-ubuntu-AVATAR.sh`: Original script from da667/Autosnort (included for reference, not recommended for use).
+- `ORIG_DA667_autosnort-ubuntu-AVATAR.sh`: Original script from da667/Autosnort (included for reference, not recommended for use).
+- `ORIG_DA667_readme.txt`: Original Autosnort README retained for reference.
 - `full_autosnort.conf`: Configuration file for specifying Snort installation directory, interfaces, and Oinkcode.
 - `snortd.service`: Systemd service file for Snort.
+- `LICENSE`: MIT License (Copyright 2026 ZeroXSHDW).
 - `README.md`: This file, providing setup instructions and references.
 
 ## Prerequisites
@@ -191,7 +193,7 @@ To prevent network traffic fallout due to lab activities, secure the host system
   - Configure SSH tunnels (Chapter 18.17–18.28).
 
 ## Differences from Original Script
-The original `autosnort-ubuntu-AVATAR.sh` (from da667/Autosnort) is broken due to:
+The original `ORIG_DA667_autosnort-ubuntu-AVATAR.sh` (from da667/Autosnort) is broken due to:
 - Outdated package repositories (e.g., Ubuntu 16.04 support removed).
 - Deprecated URLs for Snort rules and configurations.
 - Missing dependencies (e.g., libluajit, Perl modules).
