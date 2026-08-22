@@ -273,3 +273,10 @@ For support, open an issue on this repository or contact the original Autosnort 
 ## Security
 
 Report vulnerabilities privately using [SECURITY.md](SECURITY.md). Do not include credentials, live network captures, or host-specific configuration in public issues.
+
+## Architecture
+
+The repository contains a host-side AF_PACKET bridge installer and companion
+verification material. Installation, package setup, firewall handling, and
+verification are deliberately separated so an operator can inspect each
+change before enabling traffic forwarding.
