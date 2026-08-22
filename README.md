@@ -195,6 +195,20 @@ To prevent network traffic fallout due to lab activities, secure the host system
   - Set up a Raspberry Pi or VM with SSH access (Chapter 18.6–18.11).
   - Configure SSH tunnels (Chapter 18.17–18.28).
 
+## Verification
+
+Run the same lightweight checks locally before opening a pull request:
+
+```bash
+bash -n ZeroXSHDW_autosnort-ubuntu.sh
+bash -n ORIG_DA667_autosnort-ubuntu-AVATAR.sh
+shellcheck --severity=warning -- ZeroXSHDW_autosnort-ubuntu.sh
+```
+
+The GitHub Actions workflow runs Bash syntax checks for every shell script and ShellCheck for the maintained `ZeroXSHDW_autosnort-ubuntu.sh` installer. The original script is retained as an archival comparison and is syntax-checked only; it is not the supported installer and is not treated as a clean-code baseline.
+
+These checks validate source quality without running the privileged installer, changing a host firewall, downloading Snort rules, or requiring a live lab network.
+
 ## Differences from Original Script
 The original `ORIG_DA667_autosnort-ubuntu-AVATAR.sh` (from da667/Autosnort) is broken due to:
 - Outdated package repositories (e.g., Ubuntu 16.04 support removed).

@@ -16,13 +16,20 @@ jobs:
       - name: Bash syntax check
         run: |
           set -euo pipefail
-          mapfile -t scripts < <(find . -type f -name '*.sh' ! -path './.git/*' | sort)
-          if [[ ${#scripts[@]} -eq 0 ]]; then
+          count=0
+          while IFS= read -r -d '' script; do
+            echo "Checking $script"
+            bash -n "$script"
+            count=$((count + 1))
+          done < <(find . -type f -name '*.sh' ! -path './.git/*' -print0 | sort -z)
+          if [[ $count -eq 0 ]]; then
             echo "No shell scripts found"
             exit 1
           fi
-          for script in "${scripts[@]}"; do
-            echo "Checking $script"
-            bash -n "$script"
-          done
-          echo "All ${#scripts[@]} scripts passed bash -n"
+          echo "All $count scripts passed bash -n"
+
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends shellcheck
+
+      - name: ShellCheck maintained installer
+        run: shellcheck --severity=warning -- ZeroXSHDW_autosnort-ubuntu.sh

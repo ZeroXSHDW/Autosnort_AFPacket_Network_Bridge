@@ -61,9 +61,9 @@ function error_check()
 # Package installation function.
 function install_packages()
 {
-    print_status "Updating package lists and installing packages: ${@}"
-    apt-get update &>> $logfile && apt-get install -y "${@}" &>> $logfile
-    error_check "Package installation for ${@}"
+    print_status "Updating package lists and installing packages: ${*}"
+    apt-get update >>"$logfile" 2>&1 && apt-get install -y "$@" >>"$logfile" 2>&1
+    error_check "Package installation for ${*}"
 }
 
 ########################################
@@ -109,12 +109,12 @@ function import_gpg_key()
 
     # Export key in ASCII-armored format
     print_status "Exporting key $key_id to /etc/apt/trusted.gpg.d/$key_file.asc..."
-    gpg --export --armor "$key_id" > "/etc/apt/trusted.gpg.d/$key_file.asc" &>> $logfile
+    gpg --export --armor "$key_id" > "/etc/apt/trusted.gpg.d/$key_file.asc" 2>>"$logfile"
     error_check "Export GPG key $key_id to /etc/apt/trusted.gpg.d/$key_file.asc"
 
     # Export key in binary format as fallback
     print_status "Exporting key $key_id to /etc/apt/trusted.gpg.d/$key_file.gpg..."
-    gpg --export "$key_id" > "/etc/apt/trusted.gpg.d/$key_file.gpg" &>> $logfile
+    gpg --export "$key_id" > "/etc/apt/trusted.gpg.d/$key_file.gpg" 2>>"$logfile"
     error_check "Export GPG key $key_id to /etc/apt/trusted.gpg.d/$key_file.gpg"
 
     # Set permissions
@@ -229,7 +229,7 @@ function pp_postprocessing()
     done
 
     print_status "Moving other Snort configuration files.."
-    cd /tmp
+    cd /tmp || exit 1
     tar -xzvf snortrules-snapshot-*.tar.gz &>> $logfile
 
     for conffiles in $(ls -1 /tmp/etc/* | egrep -v "snort.conf|sid-msg.map"); do
@@ -481,7 +481,7 @@ daqver="daq-2.0.7"
 primary_conf_url="https://www.snort.org/documents/snort.conf"
 fallback_conf_url="https://www.snort.org/documents/snort-209190-conf"
 
-cd /usr/src
+cd /usr/src || exit 1
 
 ########################################
 # Install DAQ libraries.
@@ -509,7 +509,7 @@ done
 tar -xzvf $daqtar &>> $logfile
 error_check 'Untar of DAQ'
 
-cd $daqver
+cd "$daqver" || exit 1
 
 print_status "Configuring, making, compiling, and linking DAQ libraries. This will take a moment or two.."
 autoreconf -f -i &>> $logfile
@@ -560,7 +560,7 @@ fi
 ldconfig &>> $logfile
 error_check 'Update linker cache'
 
-cd /usr/src
+cd /usr/src || exit 1
 
 ########################################
 # Install Snort.
@@ -598,7 +598,7 @@ fi
 dir_check $snort_basedir
 dir_check $snort_basedir/lib
 
-cd $snortver
+cd "$snortver" || exit 1
 
 print_status "Checking build environment before compiling Snort..."
 # Check disk space.
@@ -820,7 +820,7 @@ touch $snort_basedir/rules/snort.rules
 print_good "snort.conf configured. Location: $snort_basedir/etc/snort.conf"
 
 # Install PulledPork.
-cd /usr/src
+cd /usr/src || exit 1
 if [ -d /usr/src/pulledpork ]; then
     print_notification "Removing existing PulledPork directory to ensure fresh clone.."
     rm -rf /usr/src/pulledpork
@@ -874,7 +874,7 @@ error_check 'Download of pulledpork'
 print_good "Pulledpork successfully installed to /usr/src."
 
 print_status "Generating pulledpork.conf."
-cd pulledpork/etc
+cd pulledpork/etc || exit 1
 
 # Create a copy of the original conf file (in case the user needs it).
 cp pulledpork.conf pulledpork.conf.orig &>> $logfile
@@ -925,7 +925,7 @@ chmod 644 /usr/src/pulledpork/etc/pulledpork.conf &>> $logfile
 error_check 'Setting permissions for pulledpork.conf'
 
 # Run PulledPork.
-cd /usr/src/pulledpork
+cd /usr/src/pulledpork || exit 1
 print_status "Attempting to download rules for $ppsnortver.."
 print_notification "If this hangs, please make sure you set the HTTP_PROXY, http_proxy, HTTPS_PROXY, and https_proxy variables as required!"
 perl pulledpork.pl -W -vv -P -c /usr/src/pulledpork/etc/pulledpork.conf &>> $logfile
@@ -961,7 +961,7 @@ ethtool -K $snort_iface_2 lro off &>> $logfile
 
 ########################################
 # Install systemd service.
-cd "$execdir"
+cd "$execdir" || exit 1
 if [ -f /etc/systemd/system/snortd.service ]; then
     print_notification "Snortd init script already installed."
 else
