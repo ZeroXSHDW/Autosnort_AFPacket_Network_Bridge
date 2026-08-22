@@ -269,3 +269,7 @@ Submit pull requests or issues for improvements to the script or documentation.
 
 ## Contact
 For support, open an issue on this repository or contact the original Autosnort author at deusexmachina667@gmail.com.
+
+## Security
+
+Report vulnerabilities privately using [SECURITY.md](SECURITY.md). Do not include credentials, live network captures, or host-specific configuration in public issues.
