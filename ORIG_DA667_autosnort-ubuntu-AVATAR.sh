@@ -57,7 +57,7 @@ fi
 function install_packages()
 {
 
-apt-get update &>> $logfile && apt-get install -y ${@} &>> $logfile
+apt-get update >> "$logfile" 2>&1 && apt-get install -y ${@} >> "$logfile" 2>&1
 error_check 'Package installation'
 
 }
@@ -82,7 +82,7 @@ done
 
 print_status "Moving other snort configuration files.."
 cd /tmp
-tar -xzvf snortrules-snapshot-*.tar.gz &>> $logfile
+tar -xzvf snortrules-snapshot-*.tar.gz >> "$logfile" 2>&1
 
 for conffiles in `ls -1 /tmp/etc/* | egrep -v "snort.conf|sid-msg.map"`; do
 	cp $conffiles $snort_basedir/etc
@@ -167,7 +167,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 # System updates
 print_status "Performing apt-get update and upgrade (May take a while if this is a fresh install).."
-apt-get update &>> $logfile && apt-get -y upgrade &>> $logfile
+apt-get update >> "$logfile" 2>&1 && apt-get -y upgrade >> "$logfile" 2>&1
 error_check 'System updates'
 
 ########################################
@@ -204,7 +204,7 @@ else
 	print_notification "If you are not running ubuntu 18.04, I highly suggest hitting ctrl+c to cancel this, or you'll end up adding package sources to your distro that could potentially break a lot of stuff."
 	sleep 10
 	if [ ! -f /etc/apt/sources.list.bak ]; then
-		cp /etc/apt/sources.list /etc/apt/sources.list.bak &>> $logfile
+		cp /etc/apt/sources.list /etc/apt/sources.list.bak >> "$logfile" 2>&1
 		error_check 'Backup of /etc/apt/sources.list'
 	else
 		print_notification '/etc/apt/sources.list.bak already exists.'
@@ -268,26 +268,26 @@ cd /usr/src
 
 print_status "Acquiring and unpacking $daqver to /usr/src.."
 
-wget https://www.snort.org/downloads/snort/$daqtar -O $daqtar &>> $logfile
+wget https://www.snort.org/downloads/snort/$daqtar -O $daqtar >> "$logfile" 2>&1
 error_check 'Download of DAQ'
 
-tar -xzvf $daqtar &>> $logfile
+tar -xzvf $daqtar >> "$logfile" 2>&1
 error_check 'Untar of DAQ'
 
 cd $daqver
 
 print_status "Configuring, making, compiling and linking DAQ libraries. This will take a moment or two.."
 
-autoreconf -f -i &>> $logfile
+autoreconf -f -i >> "$logfile" 2>&1
 error_check 'Autoreconf DAQ'
 
-./configure &>> $logfile
+./configure >> "$logfile" 2>&1
 error_check 'Configure DAQ'
 
-make &>> $logfile
+make >> "$logfile" 2>&1
 error_check 'Make DAQ'
 
-make install &>> $logfile
+make install >> "$logfile" 2>&1
 error_check 'Installation of DAQ libraries'
 
 #seen some strange happenings where if this isn't symlinked or in /usr/lib, snort fails to find it and subsequently bails.
@@ -306,10 +306,10 @@ cd /usr/src
 
 print_status "Acquiring and unpacking $snortver to /usr/src.."
 
-wget https://www.snort.org/downloads/snort/$snorttar -O $snorttar &>> $logfile
+wget https://www.snort.org/downloads/snort/$snorttar -O $snorttar >> "$logfile" 2>&1
 error_check 'Download of Snort'
 
-tar -xzvf $snorttar &>> $logfile
+tar -xzvf $snorttar >> "$logfile" 2>&1
 error_check 'Untar of Snort'
 
 dir_check $snort_basedir
@@ -319,23 +319,23 @@ cd $snortver
 
 print_status "configuring snort (options --prefix=$snort_basedir and --enable-sourcefire), making and installing. This will take a moment or two."
 
-./configure --prefix=$snort_basedir --libdir=$snort_basedir/lib --enable-sourcefire &>> $logfile
+./configure --prefix=$snort_basedir --libdir=$snort_basedir/lib --enable-sourcefire >> "$logfile" 2>&1
 error_check 'Configure Snort'
 
-make &>> $logfile
+make >> "$logfile" 2>&1
 error_check 'Make Snort'
 
-make install &>> $logfile
+make install >> "$logfile" 2>&1
 error_check 'Installation of Snort'
 
 dir_check /var/log/snort
 
 print_status "Checking for snort user and group.."
 
-getent passwd snort &>> $logfile
+getent passwd snort >> "$logfile" 2>&1
 if [ $? -eq 0 ]; then
 	print_notification "snort user exists. Verifying group exists.."
-	id -g snort &>> $logfile
+	id -g snort >> "$logfile" 2>&1
 	if [ $? -eq 0 ]; then
 		print_notification "snort group exists."
 	else
@@ -373,11 +373,11 @@ touch $snort_basedir/rules/iplists/IPRVersion.dat
 
 print_status "Attempting to download .conf file for $snortver.."
 
-wget https://www.snort.org/documents/$choice1conf -O $snort_basedir/etc/snort.conf --no-check-certificate &>> $logfile
+wget https://www.snort.org/documents/$choice1conf -O $snort_basedir/etc/snort.conf --no-check-certificate >> "$logfile" 2>&1
 
 if [ $? != 0 ];then
 	print_error "Attempt to download $snortver conf file from snort.org failed. attempting to download $choice2conf.."
-	wget https://www.snort.org/documents/$choice2conf -O $snort_basedir/etc/snort.conf --no-check-certificate &>> $logfile
+	wget https://www.snort.org/documents/$choice2conf -O $snort_basedir/etc/snort.conf --no-check-certificate >> "$logfile" 2>&1
 	error_check 'Download of secondary snort.conf'
 else
 	print_good "Successfully downloaded .conf file for $snortver."
@@ -424,7 +424,7 @@ fi
 
 print_status "Acquiring Pulled Pork.."
 
-git clone https://github.com/shirkdog/pulledpork.git &>> $logfile
+git clone https://github.com/shirkdog/pulledpork.git >> "$logfile" 2>&1
 error_check 'Download of pulledpork'
 
 print_good "Pulledpork successfully installed to /usr/src."
@@ -474,7 +474,7 @@ cd /usr/src/pulledpork
 	
 print_status "Attempting to download rules for $ppsnortver.."
 print_notification "If this hangs, please make sure you set the HTTP_PROXY, http_proxy, HTTPS_PROXY, and https_proxy variables as required!"
-perl pulledpork.pl -W -vv -P -c /usr/src/pulledpork/etc/pulledpork.conf &>> $logfile
+perl pulledpork.pl -W -vv -P -c /usr/src/pulledpork/etc/pulledpork.conf >> "$logfile" 2>&1
 if [ $? == 0 ]; then
 	pp_postprocessing
 else
@@ -487,22 +487,22 @@ fi
 #GRO and LRO are checksum offloading techniques that some network cards use to offload checking frame, packet and/or tcp header checksums and can lead to invalid checksums. Snort doesn't like packets with invalid checksums and will ignore them. These commands disable GRO and LRO.
 
 print_notification "Disabling offloading options on the sniffing interfaces.."
-ethtool -K $snort_iface_1 rx off &>> $logfile
-ethtool -K $snort_iface_1 tx off &>> $logfile
-ethtool -K $snort_iface_1 sg off &>> $logfile
-ethtool -K $snort_iface_1 tso off &>> $logfile
-ethtool -K $snort_iface_1 ufo off &>> $logfile
-ethtool -K $snort_iface_1 gso off &>> $logfile
-ethtool -K $snort_iface_1 gro off &>> $logfile
-ethtool -K $snort_iface_1 lro off &>> $logfile
-ethtool -K $snort_iface_2 rx off &>> $logfile
-ethtool -K $snort_iface_2 tx off &>> $logfile
-ethtool -K $snort_iface_2 sg off &>> $logfile
-ethtool -K $snort_iface_2 tso off &>> $logfile
-ethtool -K $snort_iface_2 ufo off &>> $logfile
-ethtool -K $snort_iface_2 gso off &>> $logfile
-ethtool -K $snort_iface_2 gro off &>> $logfile
-ethtool -K $snort_iface_2 lro off &>> $logfile 
+ethtool -K $snort_iface_1 rx off >> "$logfile" 2>&1
+ethtool -K $snort_iface_1 tx off >> "$logfile" 2>&1
+ethtool -K $snort_iface_1 sg off >> "$logfile" 2>&1
+ethtool -K $snort_iface_1 tso off >> "$logfile" 2>&1
+ethtool -K $snort_iface_1 ufo off >> "$logfile" 2>&1
+ethtool -K $snort_iface_1 gso off >> "$logfile" 2>&1
+ethtool -K $snort_iface_1 gro off >> "$logfile" 2>&1
+ethtool -K $snort_iface_1 lro off >> "$logfile" 2>&1
+ethtool -K $snort_iface_2 rx off >> "$logfile" 2>&1
+ethtool -K $snort_iface_2 tx off >> "$logfile" 2>&1
+ethtool -K $snort_iface_2 sg off >> "$logfile" 2>&1
+ethtool -K $snort_iface_2 tso off >> "$logfile" 2>&1
+ethtool -K $snort_iface_2 ufo off >> "$logfile" 2>&1
+ethtool -K $snort_iface_2 gso off >> "$logfile" 2>&1
+ethtool -K $snort_iface_2 gro off >> "$logfile" 2>&1
+ethtool -K $snort_iface_2 lro off >> "$logfile" 2>&1
 
 ########################################
 #The year was 2020 in which systemd doing the one thing its actually pretty well designed for won me over and make me wave the white flag.
@@ -520,19 +520,19 @@ else
 		print_good "Found snortd systemd service script. Configuring.."
 	fi
 	
-	cp snortd.service snortd_2 &>> $logfile
+	cp snortd.service snortd_2 >> "$logfile" 2>&1
 	sed -i "s#snort_basedir#$snort_basedir#g" snortd_2
 	sed -i "s#snort_iface1#$snort_iface_1#g" snortd_2
 	sed -i "s#snort_iface2#$snort_iface_2#g" snortd_2
-	cp snortd_2 /etc/systemd/system/snortd.service &>> $logfile
-	chown root:root /etc/systemd/system/snortd.service &>> $logfile
-	chmod 700 /etc/systemd/system/snortd.service &>> $logfile
-	systemctl daemon-reload &>> $logfile
+	cp snortd_2 /etc/systemd/system/snortd.service >> "$logfile" 2>&1
+	chown root:root /etc/systemd/system/snortd.service >> "$logfile" 2>&1
+	chmod 700 /etc/systemd/system/snortd.service >> "$logfile" 2>&1
+	systemctl daemon-reload >> "$logfile" 2>&1
 	error_check 'snortd.service installation'
 	print_notification "Location: /etc/systemd/system/snortd.service"
-	systemctl enable snortd.service &>> $logfile
+	systemctl enable snortd.service >> "$logfile" 2>&1
 	error_check 'snortd.service enable'	
-	rm -rf snortd_2 &>> $logfile
+	rm -rf snortd_2 >> "$logfile" 2>&1
 fi
 
 ########################################
