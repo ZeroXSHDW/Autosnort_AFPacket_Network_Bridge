@@ -41,3 +41,6 @@ jobs:
 
       - name: ShellCheck maintained installer
         run: shellcheck --severity=warning -- ZeroXSHDW_autosnort-ubuntu.sh
+
+      - name: Installer contract tests
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v

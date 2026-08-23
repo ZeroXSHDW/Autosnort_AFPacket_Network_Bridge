@@ -9,11 +9,16 @@ Read the repository README and inspect the current branch before editing. Keep c
 Run the strongest documented local gate before requesting review:
 
 - run the repository's documented test, lint, type-check, build, audit, or shell-validation commands;
+- run `bash ZeroXSHDW_autosnort-ubuntu.sh --check` with a disposable valid configuration when installer behavior changes; this mode must not mutate the host;
 - run `git diff --check`;
 - add or update a regression test for every repaired contract or failure path;
 - confirm documentation, examples, links, and configuration match the implementation.
 
 If an external service, device, GPU, cloud credential, or CI account limit prevents a check, record the exact blocker in the pull request and complete every safe local equivalent. Do not weaken a check, hide a warning, or add an unjustified skip to obtain a pass.
+
+The installer configuration is a data file, not a shell script. Keep the four
+documented keys (`snort_basedir`, `snort_iface_1`, `snort_iface_2`, and `o_code`)
+as scalar assignments and never add commands or secret values to tracked files.
 
 ## Pull requests
 

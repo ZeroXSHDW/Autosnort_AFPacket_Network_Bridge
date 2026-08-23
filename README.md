@@ -4,7 +4,7 @@ This repository provides a script to install and configure Snort as an Intrusion
 
 > **End-of-life warning:** Ubuntu 18.04 and 20.04 are past (or past standard) support, and Snort 2.9 is a legacy IDS line. Use this stack only for matching lab VMs from the book—not production. On unsupported Ubuntu releases the installer aborts unless you pass `--force` (which may rewrite `/etc/apt/sources.list`).
 
-The original script, `ORIG_DA667_autosnort-ubuntu-AVATAR.sh` from [da667/Autosnort](https://github.com/da667/Autosnort/tree/master/Autosnort-Ubuntu/AVATAR), is included but is outdated and broken due to changes in package repositories, Snort versions, and dependency management. The updated script, `ZeroXSHDW_autosnort-ubuntu.sh`, fixes these issues, ensuring reliable installation of Snort with AFPACKET bridging.
+The original script, `ORIG_DA667_autosnort-ubuntu-AVATAR.sh` from [da667/Autosnort](https://github.com/da667/Autosnort/tree/master/Autosnort-Ubuntu/AVATAR), is included but is outdated and broken due to changes in package repositories, Snort versions, and dependency management. The updated script, `ZeroXSHDW_autosnort-ubuntu.sh`, fixes these issues, validates configuration as data rather than executable shell code, keeps TLS certificate verification enabled, and requires an explicit `--reboot` before restarting the host.
 
 ## Overview
 
@@ -15,6 +15,7 @@ Key features:
 - Configures AFPACKET bridging for inline IPS mode.
 - Downloads and manages Snort rules via PulledPork 0.8.0.
 - Includes enhanced logging, GPG key management, and configuration validation.
+- Provides a non-mutating `--check` mode for configuration review before installation.
 - Sets up a systemd service (`snortd.service`) for persistence.
 - Implements a weekly cron job for rule updates.
 
@@ -76,7 +77,10 @@ Key features:
 ### Step 2: Configure full_autosnort.conf
 1. **Create the Configuration File**:
    - Copy `full_autosnort.conf` to the same directory as `ZeroXSHDW_autosnort-ubuntu.sh`, or create a gitignored `full_autosnort.conf.local` (preferred for secrets; the script prefers `.local` when present).
-   - Edit with a valid Oinkcode and interface names:
+   - Edit with a valid Oinkcode and interface names. The installer accepts plain
+     `key=value` assignments (optional matching single or double quotes) and
+     treats every value as data; arbitrary shell commands are rejected and never
+     executed:
      ```bash
      o_code="your_40_char_oinkcode"  # Obtain from snort.org
      snort_basedir="/opt/snort"
@@ -108,16 +112,22 @@ Key features:
      ```
 
 2. **Execute the Script**:
-   - Ensure all files are in the same directory:
+   - Ensure all files are in the same directory as the installer:
      ```bash
      ls
      # Should show: ZeroXSHDW_autosnort-ubuntu.sh full_autosnort.conf snortd.service
      ```
-   - Run the script as root:
+   - Validate the configuration without changing the host:
+     ```bash
+     bash ZeroXSHDW_autosnort-ubuntu.sh --check
+     ```
+   - Run the installer as root:
      ```bash
      sudo bash ZeroXSHDW_autosnort-ubuntu.sh
      # Unsupported Ubuntu only (dangerous — may rewrite apt sources):
      # sudo bash ZeroXSHDW_autosnort-ubuntu.sh --force
+     # Optional, explicit reboot after success:
+     # sudo bash ZeroXSHDW_autosnort-ubuntu.sh --reboot
      ```
    - The script will:
      - Install dependencies (e.g., libdumbnet-dev, libpcap-dev, Perl modules).
@@ -127,10 +137,10 @@ Key features:
      - Set up `snortd.service` for persistence.
      - Schedule weekly rule updates via cron.
      - Disable network offloading on `eth1` and `eth2`.
-     - Reboot the system to start Snort.
+     - Leave rebooting to the operator; use `--reboot` only when the lab is ready.
 
 3. **Verify Installation**:
-   - After reboot, check Snort status:
+   - After manually rebooting (if required), check Snort status:
      ```bash
      systemctl status snortd.service
      ```
@@ -203,9 +213,10 @@ Run the same lightweight checks locally before opening a pull request:
 bash -n ZeroXSHDW_autosnort-ubuntu.sh
 bash -n ORIG_DA667_autosnort-ubuntu-AVATAR.sh
 shellcheck --severity=warning -- ZeroXSHDW_autosnort-ubuntu.sh
+python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-The GitHub Actions workflow runs Bash syntax checks for every shell script and ShellCheck for the maintained `ZeroXSHDW_autosnort-ubuntu.sh` installer. The original script is retained as an archival comparison and is syntax-checked only; it is not the supported installer and is not treated as a clean-code baseline.
+The GitHub Actions workflow runs Bash syntax checks for every shell script, ShellCheck for the maintained `ZeroXSHDW_autosnort-ubuntu.sh` installer, and installer contract tests. The original script is retained as an archival comparison and is syntax-checked only; it is not the supported installer and is not treated as a clean-code baseline.
 
 These checks validate source quality without running the privileged installer, changing a host firewall, downloading Snort rules, or requiring a live lab network.
 
@@ -221,10 +232,10 @@ The `ZeroXSHDW_autosnort-ubuntu.sh` script addresses these issues:
 - **Enhanced GPG Key Management**: Imports Ubuntu repository keys with retries across multiple keyservers.
 - **Perl Module Verification**: Ensures `LWP::UserAgent`, `Archive::Tar`, `Crypt::SSLeay`, and `LWP::Protocol::https` are installed.
 - **Robust Downloads**: Implements retries for Snort, DAQ, and snort.conf downloads with fallback to tarball snort.conf.
-- **Configuration Validation**: Checks `snort.conf`, `snort.rules`, and network interfaces before enabling the service.
+- **Configuration Validation**: Parses only documented scalar settings, rejects executable or duplicate configuration lines, supports `--check`, and checks `snort.conf`, `snort.rules`, and network interfaces before enabling the service.
 - **Permission Fixes**: Correctly sets ownership and permissions for Snort directories and files.
-- **Verbose Logging**: Logs all actions to `/var/log/autosnort_install.log` with timestamps.
-- **Systemd Enhancements**: Adds verbose output and logging to `snortd.service`.
+- **Private Logging**: Logs all actions to `/var/log/autosnort_install.log` with timestamps and mode `0600`.
+- **Systemd Enhancements**: Renders validated interface/path placeholders into a foreground `Type=simple` unit and avoids daemon mode under systemd.
 
 ## Troubleshooting
 
@@ -233,7 +244,7 @@ The `ZeroXSHDW_autosnort-ubuntu.sh` script addresses these issues:
 - **`lsb_release` missing**: Install `lsb-release` or use a stock Ubuntu Server image from the book.
 
 ### Configuration aborts (before long installs)
-- **Missing `full_autosnort.conf`**: Must sit in the same directory you run the script from (`pwd`).
+- **Missing `full_autosnort.conf`**: Must sit in the same directory as the installer. The installer resolves configuration relative to its own location, so it can be launched from another working directory.
 - **Empty / invalid `o_code`**: Must be exactly 40 hex characters from [snort.org](https://www.snort.org/users/sign_in). Do not commit real oinkcodes; prefer `full_autosnort.conf.local` (gitignored) or edit only on the VM with `chmod 600`.
 - **`snort_basedir`**: Must be an absolute path (e.g. `/opt/snort`).
 - **Interfaces**: `snort_iface_1` and `snort_iface_2` must exist and differ. Confirm with `ip -br link show` before re-running.
