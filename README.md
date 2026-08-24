@@ -10,7 +10,7 @@ The original script, `ORIG_DA667_autosnort-ubuntu-AVATAR.sh` from [da667/Autosno
 
 This script automates the installation of Snort, Data Acquisition (DAQ) libraries, and PulledPork for rule management, configuring Snort in inline mode using AFPACKET bridging between two network interfaces (`eth1` and `eth2` by default). This setup acts as a network bridge, inspecting and potentially dropping malicious traffic, thus protecting the host and external networks from malware or exploits within the lab environment.
 
-Key features:
+## Features
 - Installs Snort 2.9.20 and DAQ 2.0.7 with dependencies.
 - Configures AFPACKET bridging for inline IPS mode.
 - Downloads and manages Snort rules via PulledPork 0.8.0 at a reviewed immutable commit.
@@ -51,7 +51,7 @@ Key features:
 - Familiarity with Linux CLI (`ip`, `systemctl`, `nano`).
 - Understanding of virtualization and network segmentation.
 
-## Setup Instructions
+## Installation and setup
 
 ### Step 1: Prepare the IPS VM
 1. **Create the VM**:
@@ -271,11 +271,15 @@ The `ZeroXSHDW_autosnort-ubuntu.sh` script addresses these issues:
   - Reapply Windows Firewall rules and unbind protocols (Chapter 15).
   - Check static routes on the host.
 
-## License and Credits
+## License
+
+The maintained source is available under the MIT License; see [LICENSE](LICENSE). The license does not change the repository’s explicit lab-only scope or make the legacy Ubuntu/Snort stack suitable for production.
+
+## Credits
+
 - **Book**: *Building Virtual Machine Labs: A Hands-On Guide* by Tony Robinson.
 - **Original Autosnort**: [da667/Autosnort](https://github.com/da667/Autosnort) by deusexmachina667@gmail.com.
-- **Updated Script**: ZeroXSHDW.
-- **License**: MIT License (see repository for details).
+- **Updated script**: ZeroXSHDW.
 
 ## Contributing
 Submit pull requests or issues for improvements to the script or documentation.
