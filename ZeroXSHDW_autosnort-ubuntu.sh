@@ -943,6 +943,12 @@ if [ -d /usr/src/pulledpork ]; then
     rm -rf /usr/src/pulledpork
 fi
 
+# Keep the privileged installer tied to the reviewed PulledPork source. The
+# branch name is only used to fetch the repository; the exact commit check
+# below prevents a later upstream change from being executed implicitly.
+pulledpork_repo="https://github.com/shirkdog/pulledpork.git"
+pulledpork_commit="5ccf5c51d233b24d151e4046cb22e551bb625d24"
+
 # Verify Perl and required modules.
 print_status "Verifying Perl and required modules for PulledPork.."
 which perl >> "$logfile" 2>&1
@@ -985,8 +991,16 @@ for module in "${!module_to_package[@]}"; do
 done
 
 print_status "Acquiring Pulled Pork.."
-git clone https://github.com/shirkdog/pulledpork.git >> "$logfile" 2>&1
+git clone --depth 1 --no-tags --branch master "$pulledpork_repo" /usr/src/pulledpork >> "$logfile" 2>&1
 error_check 'Download of pulledpork'
+
+actual_pulledpork_commit=$(git -C /usr/src/pulledpork rev-parse HEAD 2>>"$logfile")
+if [ "$actual_pulledpork_commit" != "$pulledpork_commit" ]; then
+    print_error "PulledPork commit verification failed: expected $pulledpork_commit, got ${actual_pulledpork_commit:-unknown}."
+    print_notification "Review and update the pinned commit deliberately before rerunning the installer."
+    exit 1
+fi
+print_good "PulledPork source verified at commit $pulledpork_commit."
 
 print_good "Pulledpork successfully installed to /usr/src."
 

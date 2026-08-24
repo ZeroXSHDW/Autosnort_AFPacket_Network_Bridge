@@ -13,7 +13,7 @@ This script automates the installation of Snort, Data Acquisition (DAQ) librarie
 Key features:
 - Installs Snort 2.9.20 and DAQ 2.0.7 with dependencies.
 - Configures AFPACKET bridging for inline IPS mode.
-- Downloads and manages Snort rules via PulledPork 0.8.0.
+- Downloads and manages Snort rules via PulledPork 0.8.0 at a reviewed immutable commit.
 - Includes enhanced logging, GPG key management, and configuration validation.
 - Provides a non-mutating `--check` mode for configuration review before installation.
 - Sets up a systemd service (`snortd.service`) for persistence.
@@ -234,6 +234,7 @@ The `ZeroXSHDW_autosnort-ubuntu.sh` script addresses these issues:
 - **Perl Module Verification**: Ensures `LWP::UserAgent`, `Archive::Tar`, `Crypt::SSLeay`, and `LWP::Protocol::https` are installed.
 - **Robust Downloads**: Implements retries for Snort, DAQ, and snort.conf downloads with fallback to tarball snort.conf.
 - **Configuration Validation**: Parses only documented scalar settings, rejects executable or duplicate configuration lines, supports `--check`, and checks `snort.conf`, `snort.rules`, and network interfaces before enabling the service.
+- **Pinned PulledPork Source**: Clones the reviewed `master` revision and verifies its exact commit before any PulledPork code runs; an upstream branch change fails closed.
 - **Permission Fixes**: Correctly sets ownership and permissions for Snort directories and files.
 - **Private Logging**: Logs all actions to `/var/log/autosnort_install.log` with timestamps and mode `0600`.
 - **Systemd Enhancements**: Renders validated interface/path placeholders into a foreground `Type=simple` unit and avoids daemon mode under systemd.

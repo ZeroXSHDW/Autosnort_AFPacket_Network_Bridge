@@ -37,6 +37,26 @@ class InstallerContractTests(unittest.TestCase):
         self.assertNotIn("--no-check-certificate", source)
         self.assertGreaterEqual(source.count("--https-only"), 4)
 
+    def test_pulledpork_source_is_immutable(self) -> None:
+        source = INSTALLER.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'pulledpork_commit="5ccf5c51d233b24d151e4046cb22e551bb625d24"',
+            source,
+        )
+        self.assertIn(
+            'git clone --depth 1 --no-tags --branch master "$pulledpork_repo"',
+            source,
+        )
+        self.assertIn(
+            'git -C /usr/src/pulledpork rev-parse HEAD',
+            source,
+        )
+        self.assertIn(
+            'actual_pulledpork_commit" != "$pulledpork_commit"',
+            source,
+        )
+
     def test_reboot_is_opt_in(self) -> None:
         source = INSTALLER.read_text(encoding="utf-8")
 
