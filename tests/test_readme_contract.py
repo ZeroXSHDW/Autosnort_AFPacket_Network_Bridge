@@ -26,7 +26,7 @@ def test_readme_documents_the_safe_operator_contract():
         "full_autosnort.conf.local",
         "Do not commit real oinkcodes.",
         "without running the privileged installer",
-        "without ... requiring a live lab network",
+        "or requiring a live lab network",
     ):
         assert token in readme, f"README is missing operator contract: {token}"
 
