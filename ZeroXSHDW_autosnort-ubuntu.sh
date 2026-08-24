@@ -8,39 +8,87 @@
 # Updated snort.conf download to use reliable URLs with retries and fallback to Snort tarball
 # Added validation checks for snort.conf, rules, and interfaces to prevent service startup failures
 # Fixed syntax error on line 376 (incomplete cp command)
-# Fixed permission-setting for Snort directories to handle missing or empty directories
+# Fixed permission-setting for Snort directories to handle missing or empty directories.
 
-# Logging setup. Uses FIFO/pipe to log all output to a file for troubleshooting.
-logfile=/var/log/autosnort_install.log
-mkfifo ${logfile}.pipe
-tee < ${logfile}.pipe $logfile &
-exec &> ${logfile}.pipe
-rm ${logfile}.pipe
+# Parse non-mutating and destructive-operation flags before requiring root or opening
+# the privileged install log. This keeps --help and --check safe for normal users.
+FORCE=0
+REBOOT=0
+CHECK_ONLY=0
+for arg in "$@"; do
+    case "$arg" in
+        --force)
+            FORCE=1
+            ;;
+        --reboot)
+            REBOOT=1
+            ;;
+        --check)
+            CHECK_ONLY=1
+            ;;
+        -h|--help)
+            cat <<'USAGE'
+Usage: sudo bash ZeroXSHDW_autosnort-ubuntu.sh [options]
+
+Options:
+  --check   Validate the local configuration without changing the host.
+  --force   Continue on unsupported Ubuntu versions (may rewrite apt sources).
+  --reboot  Reboot after a successful installation (default: do not reboot).
+  -h, --help
+            Show this help text.
+USAGE
+            exit 0
+            ;;
+        *)
+            printf 'Unknown argument: %s (supported: --check, --force, --reboot, --help)\n' "$arg" >&2
+            exit 1
+            ;;
+    esac
+done
+
+script_path=${BASH_SOURCE[0]}
+execdir=$(cd -- "$(dirname -- "$script_path")" && pwd -P)
+
+if (( CHECK_ONLY == 0 && EUID != 0 )); then
+    printf 'This installer must be run as root; use --check for a non-mutating configuration check.\n' >&2
+    exit 1
+fi
+
+if (( CHECK_ONLY == 0 )); then
+    # Keep the install log private: it can contain package and rule-download details.
+    umask 077
+    logfile=/var/log/autosnort_install.log
+    touch "$logfile"
+    chmod 600 "$logfile"
+    exec > >(tee -a "$logfile") 2>&1
+else
+    logfile=/dev/null
+fi
 
 # Add timestamp to log for debugging.
-echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Starting Autosnort script" >> $logfile
+echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Starting Autosnort script" >> "$logfile"
 
 ########################################
 
 # Metasploit-like print statements for status, success, error, and notification messages.
 function print_status()
 {
-    echo -e "[$(date '+%Y-%m-%d %H:%M:%S %Z')] \x1B[01;34m[*]\x1B[0m $1" | tee -a $logfile
+    printf '[%s] \033[01;34m[*]\033[0m %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$1"
 }
 
 function print_good()
 {
-    echo -e "[$(date '+%Y-%m-%d %H:%M:%S %Z')] \x1B[01;32m[*]\x1B[0m $1" | tee -a $logfile
+    printf '[%s] \033[01;32m[*]\033[0m %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$1"
 }
 
 function print_error()
 {
-    echo -e "[$(date '+%Y-%m-%d %H:%M:%S %Z')] \x1B[01;31m[*]\x1B[0m $1" | tee -a $logfile
+    printf '[%s] \033[01;31m[*]\033[0m %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$1"
 }
 
 function print_notification()
 {
-    echo -e "[$(date '+%Y-%m-%d %H:%M:%S %Z')] \x1B[01;33m[*]\x1B[0m $1" | tee -a $logfile
+    printf '[%s] \033[01;33m[*]\033[0m %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$1"
 }
 
 ########################################
@@ -58,12 +106,69 @@ function error_check()
 }
 
 ########################################
+# Load only the four documented scalar settings. Do not source the file: a local
+# configuration can contain secrets, but it must never be able to execute code.
+function load_config()
+{
+    local config_file=$1
+    local line key value
+    local seen_snort_basedir=0
+    local seen_snort_iface_1=0
+    local seen_snort_iface_2=0
+    local seen_o_code=0
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+
+        if [[ ! "$line" =~ ^[[:space:]]*(snort_basedir|snort_iface_1|snort_iface_2|o_code)[[:space:]]*=[[:space:]]*(.*)[[:space:]]*$ ]]; then
+            print_error "Invalid configuration line in $config_file: $line"
+            exit 1
+        fi
+
+        key=${BASH_REMATCH[1]}
+        value=${BASH_REMATCH[2]}
+
+        # Permit the quoted examples documented in README.md without invoking a
+        # shell parser. Values containing shell syntax remain plain data and are
+        # rejected later by the field-specific validators.
+        if [[ "$value" =~ ^\"(.*)\"$ ]]; then
+            value=${BASH_REMATCH[1]}
+        elif [[ "$value" =~ ^\'(.*)\'$ ]]; then
+            value=${BASH_REMATCH[1]}
+        fi
+
+        case "$key" in
+            snort_basedir)
+                (( seen_snort_basedir == 0 )) || { print_error "Duplicate configuration key '$key' in $config_file."; exit 1; }
+                seen_snort_basedir=1
+                snort_basedir=$value
+                ;;
+            snort_iface_1)
+                (( seen_snort_iface_1 == 0 )) || { print_error "Duplicate configuration key '$key' in $config_file."; exit 1; }
+                seen_snort_iface_1=1
+                snort_iface_1=$value
+                ;;
+            snort_iface_2)
+                (( seen_snort_iface_2 == 0 )) || { print_error "Duplicate configuration key '$key' in $config_file."; exit 1; }
+                seen_snort_iface_2=1
+                snort_iface_2=$value
+                ;;
+            o_code)
+                (( seen_o_code == 0 )) || { print_error "Duplicate configuration key '$key' in $config_file."; exit 1; }
+                seen_o_code=1
+                o_code=$value
+                ;;
+        esac
+    done < "$config_file"
+}
+
+########################################
 # Package installation function.
 function install_packages()
 {
-    print_status "Updating package lists and installing packages: ${@}"
-    apt-get update &>> $logfile && apt-get install -y "${@}" &>> $logfile
-    error_check "Package installation for ${@}"
+    print_status "Updating package lists and installing packages: ${*}"
+    apt-get update >>"$logfile" 2>&1 && apt-get install -y "$@" >>"$logfile" 2>&1
+    error_check "Package installation for ${*}"
 }
 
 ########################################
@@ -83,11 +188,11 @@ function import_gpg_key()
     while [ $attempt -le $max_attempts ] && [ $success -eq 0 ]; do
         for keyserver in "${keyservers[@]}"; do
             print_notification "Attempt $attempt: Retrieving key $key_id from $keyserver..."
-            gpg --keyserver "$keyserver" --recv-keys "$key_id" &>> $logfile
+            gpg --keyserver "$keyserver" --recv-keys "$key_id" >> "$logfile" 2>&1
             if [ $? -eq 0 ]; then
                 print_good "Successfully retrieved key $key_id from $keyserver"
                 # Verify key presence
-                gpg --list-keys "$key_id" &>> $logfile
+                gpg --list-keys "$key_id" >> "$logfile" 2>&1
                 if [ $? -eq 0 ]; then
                     success=1
                     break
@@ -109,16 +214,16 @@ function import_gpg_key()
 
     # Export key in ASCII-armored format
     print_status "Exporting key $key_id to /etc/apt/trusted.gpg.d/$key_file.asc..."
-    gpg --export --armor "$key_id" > "/etc/apt/trusted.gpg.d/$key_file.asc" &>> $logfile
+    gpg --export --armor "$key_id" > "/etc/apt/trusted.gpg.d/$key_file.asc" 2>>"$logfile"
     error_check "Export GPG key $key_id to /etc/apt/trusted.gpg.d/$key_file.asc"
 
     # Export key in binary format as fallback
     print_status "Exporting key $key_id to /etc/apt/trusted.gpg.d/$key_file.gpg..."
-    gpg --export "$key_id" > "/etc/apt/trusted.gpg.d/$key_file.gpg" &>> $logfile
+    gpg --export "$key_id" > "/etc/apt/trusted.gpg.d/$key_file.gpg" 2>>"$logfile"
     error_check "Export GPG key $key_id to /etc/apt/trusted.gpg.d/$key_file.gpg"
 
     # Set permissions
-    chmod 644 "/etc/apt/trusted.gpg.d/$key_file.asc" "/etc/apt/trusted.gpg.d/$key_file.gpg" &>> $logfile
+    chmod 644 "/etc/apt/trusted.gpg.d/$key_file.asc" "/etc/apt/trusted.gpg.d/$key_file.gpg" >> "$logfile" 2>&1
     error_check "Setting permissions for GPG key files $key_file"
 }
 
@@ -130,17 +235,17 @@ function verify_apt_keyring()
     print_status "Verifying apt recognizes key $key_id..."
 
     # Run apt-get update to test keyring
-    apt-get update &>> $logfile
+    apt-get update >> "$logfile" 2>&1
     if [ $? -ne 0 ]; then
         print_notification "apt-get update failed. Checking for NO_PUBKEY $key_id..."
         if grep -qi "NO_PUBKEY.*$key_id" $logfile; then
             print_notification "Key $key_id not recognized by apt. Attempting fallback import to apt-key..."
             # Fallback: Import to apt-key for Ubuntu 18.04 compatibility
-            gpg --export "$key_id" | apt-key add - &>> $logfile
+            gpg --export "$key_id" | apt-key add - >> "$logfile" 2>&1
             if [ $? -eq 0 ]; then
                 print_good "Fallback: Successfully added key $key_id to apt keyring"
                 # Retry apt-get update
-                apt-get update &>> $logfile
+                apt-get update >> "$logfile" 2>&1
                 error_check "apt-get update after fallback key import for $key_id"
             else
                 print_error "Fallback: Failed to add key $key_id to apt keyring."
@@ -182,7 +287,7 @@ function validate_snort_config()
     # Validate network interfaces
     for iface in "$snort_iface_1" "$snort_iface_2"; do
         if [ -n "$iface" ]; then
-            ip link show "$iface" &>> $logfile
+            ip link show "$iface" >> "$logfile" 2>&1
             if [ $? -ne 0 ]; then
                 print_error "Network interface $iface does not exist. Check full_autosnort.conf."
                 exit 1
@@ -193,7 +298,7 @@ function validate_snort_config()
 
     # Test snort.conf
     print_status "Testing snort.conf with Snort..."
-    $snort_basedir/bin/snort -T -c "$snort_basedir/etc/snort.conf" &>> $logfile
+    $snort_basedir/bin/snort -T -c "$snort_basedir/etc/snort.conf" >> "$logfile" 2>&1
     if [ $? -ne 0 ]; then
         print_error "Snort configuration test failed. Check $snort_basedir/etc/snort.conf for errors."
         print_notification "Run manually: $snort_basedir/bin/snort -T -c $snort_basedir/etc/snort.conf"
@@ -206,7 +311,7 @@ function validate_snort_config()
         print_error "Snort binary not found or not executable at $snort_basedir/bin/snort."
         exit 1
     fi
-    ldd "$snort_basedir/bin/snort" &>> $logfile
+    ldd "$snort_basedir/bin/snort" >> "$logfile" 2>&1
     if [ $? -ne 0 ]; then
         print_error "Missing libraries for Snort binary. Check ldd $snort_basedir/bin/snort output in $logfile."
         exit 1
@@ -229,8 +334,8 @@ function pp_postprocessing()
     done
 
     print_status "Moving other Snort configuration files.."
-    cd /tmp
-    tar -xzvf snortrules-snapshot-*.tar.gz &>> $logfile
+    cd /tmp || exit 1
+    tar -xzvf snortrules-snapshot-*.tar.gz >> "$logfile" 2>&1
 
     for conffiles in $(ls -1 /tmp/etc/* | egrep -v "snort.conf|sid-msg.map"); do
         cp $conffiles $snort_basedir/etc
@@ -264,8 +369,8 @@ function dir_check()
     if [ ! -d "$1" ]; then
         print_notification "$1 does not exist. Creating.."
         mkdir -p "$1"
-        chown snort:snort "$1" &>> $logfile
-        chmod 770 "$1" &>> $logfile
+        chown snort:snort "$1" >> "$logfile" 2>&1
+        chmod 770 "$1" >> "$logfile" 2>&1
     else
         print_notification "$1 already exists."
     fi
@@ -274,28 +379,8 @@ function dir_check()
 ########################################
 ## BEGIN MAIN SCRIPT ##
 
-# Optional flags (parsed before apt / sources.list changes).
-FORCE=0
-for arg in "$@"; do
-    case "$arg" in
-        --force)
-            FORCE=1
-            ;;
-        -h|--help)
-            echo "Usage: sudo bash ZeroXSHDW_autosnort-ubuntu.sh [--force]"
-            echo "  --force  Continue on unsupported Ubuntu versions (may rewrite apt sources)"
-            exit 0
-            ;;
-        *)
-            print_error "Unknown argument: $arg (supported: --force, --help)"
-            exit 1
-            ;;
-    esac
-done
-
 # Pre-checks: Ensure config file exists and script is run as root.
 print_status "Checking for config file.."
-execdir=$(pwd)
 conf_file="$execdir/full_autosnort.conf"
 local_conf="$execdir/full_autosnort.conf.local"
 if [ -f "$local_conf" ]; then
@@ -310,42 +395,49 @@ else
     exit 1
 fi
 
-# shellcheck source=/dev/null
-source "$conf_file"
+load_config "$conf_file"
 
 print_status "Checking for root privs.."
-if [ "$(whoami)" != "root" ]; then
+if (( CHECK_ONLY == 0 && EUID != 0 )); then
     print_error "This script must be run with sudo or root privileges."
     exit 1
-else
+elif (( CHECK_ONLY == 0 )); then
     print_good "We are root."
+else
+    print_notification "Check-only mode: no packages, files, services, interfaces, or host settings will be changed."
 fi
 
 ########################################
 # Ubuntu version gate (before apt update / sources.list rewrite).
 # Non-20.04 paths may replace /etc/apt/sources.list with Ubuntu bionic repos.
-print_status "OS Version Check.."
-if ! command -v lsb_release >/dev/null 2>&1; then
-    print_error "lsb_release not found. This script targets Ubuntu 18.04 or 20.04."
-    exit 1
-fi
-release=$(lsb_release -r | awk '{print $2}')
-if [[ $release == "18."* || $release == "20."* ]]; then
-    print_good "OS is Ubuntu $release. Good to go."
-    if [[ $release == "18."* ]]; then
-        distro="Ubuntu-18-04"
-    else
-        distro="Ubuntu-20-04"
-    fi
+if (( CHECK_ONLY == 1 )); then
+    release=check-only
+    distro=Ubuntu-20-04
+    print_notification "OS version gate skipped in --check mode."
 else
-    print_error "Unsupported Ubuntu version: $release (supported: 18.04, 20.04)."
-    print_notification "On unsupported releases this script may rewrite /etc/apt/sources.list and break the system."
-    print_notification "Re-run with --force only if you understand the risk."
-    if [[ $FORCE -ne 1 ]]; then
+    print_status "OS Version Check.."
+    if ! command -v lsb_release >/dev/null 2>&1; then
+        print_error "lsb_release not found. This script targets Ubuntu 18.04 or 20.04."
         exit 1
     fi
-    print_notification "Continuing due to --force (fallback packaging path: Ubuntu 18.04 / bionic)."
-    distro="Ubuntu-18-04"
+    release=$(lsb_release -r | awk '{print $2}')
+    if [[ $release == "18."* || $release == "20."* ]]; then
+        print_good "OS is Ubuntu $release. Good to go."
+        if [[ $release == "18."* ]]; then
+            distro="Ubuntu-18-04"
+        else
+            distro="Ubuntu-20-04"
+        fi
+    else
+        print_error "Unsupported Ubuntu version: $release (supported: 18.04, 20.04)."
+        print_notification "On unsupported releases this script may rewrite /etc/apt/sources.list and break the system."
+        print_notification "Re-run with --force only if you understand the risk."
+        if [[ $FORCE -ne 1 ]]; then
+            exit 1
+        fi
+        print_notification "Continuing due to --force (fallback packaging path: Ubuntu 18.04 / bionic)."
+        distro="Ubuntu-18-04"
+    fi
 fi
 
 # Validate oinkcode format (40-character hexadecimal) before any apt/network work.
@@ -376,11 +468,20 @@ case "$snort_basedir" in
         exit 1
         ;;
 esac
+if ! [[ "$snort_basedir" =~ ^/[[:alnum:]_.+/@-]+$ ]]; then
+    print_error "ABORT: snort_basedir contains unsupported characters: $snort_basedir"
+    print_notification "Use an absolute path containing only letters, numbers, /, ., _, +, @, and - so it can be rendered safely into systemd and Snort config files."
+    exit 1
+fi
 if [ ! -d "$snort_basedir" ]; then
-    print_notification "snort_basedir ($snort_basedir) does not exist. Creating..."
-    mkdir -p "$snort_basedir"
-    chown root:root "$snort_basedir"
-    chmod 755 "$snort_basedir"
+    if (( CHECK_ONLY == 1 )); then
+        print_notification "snort_basedir ($snort_basedir) does not exist; --check will not create it."
+    else
+        print_notification "snort_basedir ($snort_basedir) does not exist. Creating..."
+        mkdir -p "$snort_basedir"
+        chown root:root "$snort_basedir"
+        chmod 755 "$snort_basedir"
+    fi
 fi
 print_good "snort_basedir validated: $snort_basedir"
 
@@ -396,22 +497,38 @@ if [ "$snort_iface_1" = "$snort_iface_2" ]; then
     exit 1
 fi
 for iface in "$snort_iface_1" "$snort_iface_2"; do
-    if ! ip link show "$iface" &>> "$logfile"; then
+    if ! [[ "$iface" =~ ^[[:alnum:]_.:@-]{1,15}$ ]]; then
+        print_error "ABORT: Network interface '$iface' contains unsupported characters."
+        print_notification "Use a Linux interface name of 1-15 letters, numbers, ., _, :, @, or -."
+        exit 1
+    fi
+done
+for iface in "$snort_iface_1" "$snort_iface_2"; do
+    if (( CHECK_ONLY == 0 )) && ! ip link show "$iface" >> "$logfile" 2>&1; then
         print_error "ABORT: Network interface '$iface' does not exist on this host."
         print_notification "List interfaces with: ip -br link show"
         print_notification "Update snort_iface_1 / snort_iface_2 in $conf_file to match your IPS NICs, then re-run."
         exit 1
     fi
-    print_good "Interface $iface exists."
+    if (( CHECK_ONLY == 0 )); then
+        print_good "Interface $iface exists."
+    else
+        print_good "Interface name $iface is syntactically valid."
+    fi
 done
 print_good "Bridge interfaces validated: $snort_iface_1 <-> $snort_iface_2"
+
+if (( CHECK_ONLY == 1 )); then
+    print_good "Configuration check passed; no host changes were made."
+    exit 0
+fi
 
 # Suppress package installation messages.
 export DEBIAN_FRONTEND=noninteractive
 
 # System updates.
 print_status "Performing apt-get update and upgrade (May take a while if this is a fresh install).."
-apt-get update &>> $logfile && apt-get -y upgrade &>> $logfile
+apt-get update >> "$logfile" 2>&1 && apt-get -y upgrade >> "$logfile" 2>&1
 error_check 'System updates'
 
 ########################################
@@ -426,14 +543,14 @@ if [[ $release == "20."* ]]; then
 
     # Verify Archive::Tar module.
     print_status "Verifying Archive::Tar module is available.."
-    perl -MArchive::Tar -e 'exit 0' &>> $logfile
+    perl -MArchive::Tar -e 'exit 0' >> "$logfile" 2>&1
     error_check "Verification of Archive::Tar module"
 else
     print_status "Adjusting /etc/apt/sources.list to utilize universe packages.."
     print_notification "If you are not running Ubuntu 18.04, I highly suggest hitting Ctrl+C to cancel this, or you'll end up adding package sources to your distro that could potentially break a lot of stuff."
     sleep 10
     if [ ! -f /etc/apt/sources.list.bak ]; then
-        cp /etc/apt/sources.list /etc/apt/sources.list.bak &>> $logfile
+        cp /etc/apt/sources.list /etc/apt/sources.list.bak >> "$logfile" 2>&1
         error_check 'Backup of /etc/apt/sources.list'
     else
         print_notification '/etc/apt/sources.list.bak already exists.'
@@ -460,7 +577,7 @@ else
 
     # Verify Archive::Tar module.
     print_status "Verifying Archive::Tar module is available.."
-    perl -MArchive::Tar -e 'exit 0' &>> $logfile
+    perl -MArchive::Tar -e 'exit 0' >> "$logfile" 2>&1
     error_check "Verification of Archive::Tar module"
 fi
 
@@ -481,7 +598,7 @@ daqver="daq-2.0.7"
 primary_conf_url="https://www.snort.org/documents/snort.conf"
 fallback_conf_url="https://www.snort.org/documents/snort-209190-conf"
 
-cd /usr/src
+cd /usr/src || exit 1
 
 ########################################
 # Install DAQ libraries.
@@ -490,7 +607,7 @@ print_notification "Attempting to download DAQ from: https://www.snort.org/downl
 
 for attempt in {1..3}; do
     print_status "Download attempt $attempt for $daqtar..."
-    wget --tries=2 --timeout=10 https://www.snort.org/downloads/snort/$daqtar -O $daqtar &>> $logfile
+    wget --https-only --tries=2 --timeout=10 "https://www.snort.org/downloads/snort/$daqtar" -O "$daqtar" >> "$logfile" 2>&1
     if [ $? -eq 0 ]; then
         print_good "Successfully downloaded $daqtar."
         break
@@ -506,23 +623,23 @@ for attempt in {1..3}; do
     fi
 done
 
-tar -xzvf $daqtar &>> $logfile
+tar -xzvf $daqtar >> "$logfile" 2>&1
 error_check 'Untar of DAQ'
 
-cd $daqver
+cd "$daqver" || exit 1
 
 print_status "Configuring, making, compiling, and linking DAQ libraries. This will take a moment or two.."
-autoreconf -f -i &>> $logfile
+autoreconf -f -i >> "$logfile" 2>&1
 error_check 'Autoreconf DAQ'
 
-./configure &>> $logfile
+./configure >> "$logfile" 2>&1
 error_check 'Configure DAQ'
 
 print_status "Compiling DAQ with verbose output..."
-make V=1 &>> $logfile
+make V=1 >> "$logfile" 2>&1
 error_check 'Make DAQ'
 
-make install &>> $logfile
+make install >> "$logfile" 2>&1
 error_check 'Installation of DAQ libraries'
 
 # Ensure DAQ pkg-config file.
@@ -557,10 +674,10 @@ if [ ! -h /usr/lib/libsfbpf.so.0 ]; then
 fi
 
 # Update linker cache.
-ldconfig &>> $logfile
+ldconfig >> "$logfile" 2>&1
 error_check 'Update linker cache'
 
-cd /usr/src
+cd /usr/src || exit 1
 
 ########################################
 # Install Snort.
@@ -569,7 +686,7 @@ print_notification "Attempting to download Snort from: https://www.snort.org/dow
 
 for attempt in {1..3}; do
     print_status "Download attempt $attempt for $snorttar..."
-    wget --tries=2 --timeout=10 https://www.snort.org/downloads/snort/$snorttar -O $snorttar &>> $logfile
+    wget --https-only --tries=2 --timeout=10 "https://www.snort.org/downloads/snort/$snorttar" -O "$snorttar" >> "$logfile" 2>&1
     if [ $? -eq 0 ]; then
         print_good "Successfully downloaded $snorttar."
         break
@@ -585,7 +702,7 @@ for attempt in {1..3}; do
     fi
 done
 
-tar -xzvf $snorttar &>> $logfile
+tar -xzvf $snorttar >> "$logfile" 2>&1
 error_check 'Untar of Snort'
 
 # Verify sp_rpc_check.c exists to ensure tarball integrity.
@@ -598,11 +715,11 @@ fi
 dir_check $snort_basedir
 dir_check $snort_basedir/lib
 
-cd $snortver
+cd "$snortver" || exit 1
 
 print_status "Checking build environment before compiling Snort..."
 # Check disk space.
-df -h /usr/src &>> $logfile
+df -h /usr/src >> "$logfile" 2>&1
 if [ $? -ne 0 ]; then
     print_error "Failed to check disk space. Ensure /usr/src has sufficient space."
     exit 1
@@ -622,8 +739,8 @@ if [ ! -f /usr/lib/pkgconfig/libpcap.pc ] && [ ! -f /usr/lib/x86_64-linux-gnu/pk
     exit 1
 fi
 # Check compiler and tools.
-gcc --version &>> $logfile
-make --version &>> $logfile
+gcc --version >> "$logfile" 2>&1
+make --version >> "$logfile" 2>&1
 if [ $? -ne 0 ]; then
     print_error "Compiler or make tool missing. Install gcc, g++, and make."
     exit 1
@@ -634,7 +751,7 @@ export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/lib/pkgconfig:/usr/lib/x86_
 print_notification "Library paths set: LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
 print_notification "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
 # Verify pkg-config for libraries.
-pkg-config --libs --cflags libdaq libpcap &>> $logfile
+pkg-config --libs --cflags libdaq libpcap >> "$logfile" 2>&1
 if [ $? -ne 0 ]; then
     print_error "pkg-config failed to find libdaq or libpcap. Ensure libraries are installed and paths are correct."
     print_notification "Try manually installing libpcap-dev and re-running DAQ installation."
@@ -651,24 +768,24 @@ else
     rpc_h_path=$(find /usr/include -name rpc.h 2>/dev/null | grep -E 'rpc/rpc.h$|tirpc/rpc/rpc.h$' | head -1)
     if [ -z "$rpc_h_path" ]; then
         print_notification "rpc.h not found. Attempting to reinstall libc6-dev, rpcsvc-proto, and libtirpc-dev..."
-        apt-get install -y libc6-dev rpcsvc-proto libtirpc-dev &>> $logfile
+        apt-get install -y libc6-dev rpcsvc-proto libtirpc-dev >> "$logfile" 2>&1
         error_check 'Reinstallation of libc6-dev, rpcsvc-proto, and libtirpc-dev'
         rpc_h_path=$(find /usr/include -name rpc.h 2>/dev/null | grep -E 'rpc/rpc.h$|tirpc/rpc/rpc.h$' | head -1)
     fi
     if [ -n "$rpc_h_path" ]; then
         print_good "rpc.h found at $rpc_h_path"
         # Create /usr/include/rpc if it doesn't exist.
-        mkdir -p /usr/include/rpc &>> $logfile
+        mkdir -p /usr/include/rpc >> "$logfile" 2>&1
         # Copy or symlink rpc.h to /usr/include/rpc/rpc.h.
         if [ ! -f /usr/include/rpc/rpc.h ]; then
             print_notification "Copying $rpc_h_path to /usr/include/rpc/rpc.h..."
-            cp "$rpc_h_path" /usr/include/rpc/rpc.h &>> $logfile
+            cp "$rpc_h_path" /usr/include/rpc/rpc.h >> "$logfile" 2>&1
             if [ $? -eq 0 ]; then
                 print_good "Successfully copied rpc.h to /usr/include/rpc/rpc.h"
                 extra_cflags=""
             else
                 print_notification "Copy failed. Creating symlink instead..."
-                ln -sf "$rpc_h_path" /usr/include/rpc/rpc.h &>> $logfile
+                ln -sf "$rpc_h_path" /usr/include/rpc/rpc.h >> "$logfile" 2>&1
                 error_check "Symlink of rpc.h to /usr/include/rpc/rpc.h"
                 extra_cflags=""
             fi
@@ -687,23 +804,23 @@ print_good "Build environment checks passed."
 
 print_status "Configuring Snort (options --prefix=$snort_basedir and --enable-sourcefire), making and installing. This will take a moment or two."
 ./configure --prefix=$snort_basedir --libdir=$snort_basedir/lib --enable-sourcefire \
-    CFLAGS="-I/usr/include -I/usr/local/include $extra_cflags" LDFLAGS="-L/usr/local/lib -L/usr/lib" &>> $logfile
+    CFLAGS="-I/usr/include -I/usr/local/include $extra_cflags" LDFLAGS="-L/usr/local/lib -L/usr/lib" >> "$logfile" 2>&1
 error_check 'Configure Snort'
 
 print_status "Compiling Snort with verbose output (this may take a while)..."
-make V=1 &>> $logfile
+make V=1 >> "$logfile" 2>&1
 error_check 'Make Snort'
 
-make install &>> $logfile
+make install >> "$logfile" 2>&1
 error_check 'Installation of Snort'
 
 dir_check /var/log/snort
 
 print_status "Checking for Snort user and group.."
-getent passwd snort &>> $logfile
+getent passwd snort >> "$logfile" 2>&1
 if [ $? -eq 0 ]; then
     print_notification "Snort user exists. Verifying group exists.."
-    id -g snort &>> $logfile
+    id -g snort >> "$logfile" 2>&1
     if [ $? -eq 0 ]; then
         print_notification "Snort group exists."
     else
@@ -726,16 +843,16 @@ print_status "Creating and setting permissions for Snort directories..."
 declare -a snort_dirs=("$snort_basedir/etc" "$snort_basedir/rules" "$snort_basedir/so_rules" "$snort_basedir/preproc_rules" "$snort_basedir/snort_dynamicrules" "$snort_basedir/rules/iplists")
 for dir in "${snort_dirs[@]}"; do
     dir_check "$dir"
-    chown -R snort:snort "$dir" &>> $logfile
+    chown -R snort:snort "$dir" >> "$logfile" 2>&1
     if [ $? -ne 0 ]; then
         print_error "Failed to set ownership for $dir. Check $logfile for details."
         exit 1
     fi
     # Set directory permissions
-    chmod 770 "$dir" &>> $logfile
+    chmod 770 "$dir" >> "$logfile" 2>&1
     # Set file permissions only if files exist
     if ls "$dir"/* >/dev/null 2>&1; then
-        chmod -R 660 "$dir"/* &>> $logfile
+        chmod -R 660 "$dir"/* >> "$logfile" 2>&1
         if [ $? -ne 0 ]; then
             print_error "Failed to set file permissions for $dir/*. Check $logfile for details."
             exit 1
@@ -753,7 +870,7 @@ touch $snort_basedir/rules/iplists/IPRVersion.dat
 print_status "Attempting to download snort.conf for $snortver.."
 for attempt in {1..3}; do
     print_status "Download attempt $attempt for snort.conf from $primary_conf_url..."
-    wget --tries=2 --timeout=10 "$primary_conf_url" -O $snort_basedir/etc/snort.conf --no-check-certificate &>> $logfile
+    wget --https-only --tries=2 --timeout=10 "$primary_conf_url" -O "$snort_basedir/etc/snort.conf" >> "$logfile" 2>&1
     if [ $? -eq 0 ]; then
         print_good "Successfully downloaded snort.conf from $primary_conf_url."
         break
@@ -763,7 +880,7 @@ for attempt in {1..3}; do
             print_notification "Primary snort.conf download failed. Trying fallback URL: $fallback_conf_url..."
             for fallback_attempt in {1..3}; do
                 print_status "Fallback download attempt $fallback_attempt for snort.conf from $fallback_conf_url..."
-                wget --tries=2 --timeout=10 "$fallback_conf_url" -O $snort_basedir/etc/snort.conf --no-check-certificate &>> $logfile
+                wget --https-only --tries=2 --timeout=10 "$fallback_conf_url" -O "$snort_basedir/etc/snort.conf" >> "$logfile" 2>&1
                 if [ $? -eq 0 ]; then
                     print_good "Successfully downloaded snort.conf from $fallback_conf_url."
                     break
@@ -772,7 +889,7 @@ for attempt in {1..3}; do
                     if [ $fallback_attempt -eq 3 ]; then
                         print_notification "Both primary and fallback downloads failed. Attempting to use snort.conf from Snort tarball..."
                         if [ -f "/usr/src/$snortver/etc/snort.conf" ]; then
-                            cp /usr/src/$snortver/etc/snort.conf $snort_basedir/etc/snort.conf &>> $logfile
+                            cp /usr/src/$snortver/etc/snort.conf $snort_basedir/etc/snort.conf >> "$logfile" 2>&1
                             if [ $? -eq 0 ]; then
                                 print_good "Successfully copied snort.conf from Snort tarball to $snort_basedir/etc/snort.conf."
                             else
@@ -820,15 +937,21 @@ touch $snort_basedir/rules/snort.rules
 print_good "snort.conf configured. Location: $snort_basedir/etc/snort.conf"
 
 # Install PulledPork.
-cd /usr/src
+cd /usr/src || exit 1
 if [ -d /usr/src/pulledpork ]; then
     print_notification "Removing existing PulledPork directory to ensure fresh clone.."
     rm -rf /usr/src/pulledpork
 fi
 
+# Keep the privileged installer tied to the reviewed PulledPork source. The
+# branch name is only used to fetch the repository; the exact commit check
+# below prevents a later upstream change from being executed implicitly.
+pulledpork_repo="https://github.com/shirkdog/pulledpork.git"
+pulledpork_commit="5ccf5c51d233b24d151e4046cb22e551bb625d24"
+
 # Verify Perl and required modules.
 print_status "Verifying Perl and required modules for PulledPork.."
-which perl &>> $logfile
+which perl >> "$logfile" 2>&1
 if [ $? -ne 0 ]; then
     print_error "Perl not found. Install perl package with: sudo apt-get install perl"
     exit 1
@@ -845,16 +968,16 @@ declare -A module_to_package=(
 # Check each module and attempt reinstallation if missing
 for module in "${!module_to_package[@]}"; do
     print_status "Checking Perl module $module..."
-    perl -M"$module" -e 'exit 0' &>> $logfile
+    perl -M"$module" -e 'exit 0' >> "$logfile" 2>&1
     if [ $? -ne 0 ]; then
         print_notification "Perl module $module not found. Attempting to install ${module_to_package[$module]}..."
-        apt-get install -y ${module_to_package[$module]} &>> $logfile
+        apt-get install -y ${module_to_package[$module]} >> "$logfile" 2>&1
         if [ $? -ne 0 ]; then
             print_error "Failed to install ${module_to_package[$module]}. Install manually with: sudo apt-get install ${module_to_package[$module]}"
             exit 1
         fi
         # Re-verify module after installation
-        perl -M"$module" -e 'exit 0' &>> $logfile
+        perl -M"$module" -e 'exit 0' >> "$logfile" 2>&1
         if [ $? -ne 0 ]; then
             print_error "Perl module $module still not found after installation attempt."
             print_notification "Try installing via CPAN: sudo cpan install $module"
@@ -868,16 +991,24 @@ for module in "${!module_to_package[@]}"; do
 done
 
 print_status "Acquiring Pulled Pork.."
-git clone https://github.com/shirkdog/pulledpork.git &>> $logfile
+git clone --depth 1 --no-tags --branch master "$pulledpork_repo" /usr/src/pulledpork >> "$logfile" 2>&1
 error_check 'Download of pulledpork'
+
+actual_pulledpork_commit=$(git -C /usr/src/pulledpork rev-parse HEAD 2>>"$logfile")
+if [ "$actual_pulledpork_commit" != "$pulledpork_commit" ]; then
+    print_error "PulledPork commit verification failed: expected $pulledpork_commit, got ${actual_pulledpork_commit:-unknown}."
+    print_notification "Review and update the pinned commit deliberately before rerunning the installer."
+    exit 1
+fi
+print_good "PulledPork source verified at commit $pulledpork_commit."
 
 print_good "Pulledpork successfully installed to /usr/src."
 
 print_status "Generating pulledpork.conf."
-cd pulledpork/etc
+cd pulledpork/etc || exit 1
 
 # Create a copy of the original conf file (in case the user needs it).
-cp pulledpork.conf pulledpork.conf.orig &>> $logfile
+cp pulledpork.conf pulledpork.conf.orig >> "$logfile" 2>&1
 error_check 'Backup of pulledpork.conf'
 
 # Adjust Snort version for PulledPork (expects 4-digit version, e.g., 2.9.20.0).
@@ -909,7 +1040,7 @@ echo "black_list=$snort_basedir/rules/black_list.rules" >> pulledpork.tmp
 echo "IPRVersion=$snort_basedir/rules/iplists" >> pulledpork.tmp
 echo "ips_policy=security" >> pulledpork.tmp
 echo "version=0.8.0" >> pulledpork.tmp
-cp pulledpork.tmp pulledpork.conf &>> $logfile
+cp pulledpork.tmp pulledpork.conf >> "$logfile" 2>&1
 error_check 'Generation of pulledpork.conf'
 
 # Verify pulledpork.conf existence, readability, and permissions.
@@ -921,14 +1052,14 @@ if [ ! -r /usr/src/pulledpork/etc/pulledpork.conf ]; then
     print_error "pulledpork.conf at /usr/src/pulledpork/etc/pulledpork.conf is not readable."
     exit 1
 fi
-chmod 644 /usr/src/pulledpork/etc/pulledpork.conf &>> $logfile
+chmod 644 /usr/src/pulledpork/etc/pulledpork.conf >> "$logfile" 2>&1
 error_check 'Setting permissions for pulledpork.conf'
 
 # Run PulledPork.
-cd /usr/src/pulledpork
+cd /usr/src/pulledpork || exit 1
 print_status "Attempting to download rules for $ppsnortver.."
 print_notification "If this hangs, please make sure you set the HTTP_PROXY, http_proxy, HTTPS_PROXY, and https_proxy variables as required!"
-perl pulledpork.pl -W -vv -P -c /usr/src/pulledpork/etc/pulledpork.conf &>> $logfile
+perl pulledpork.pl -W -vv -P -c /usr/src/pulledpork/etc/pulledpork.conf >> "$logfile" 2>&1
 if [ $? == 0 ]; then
     pp_postprocessing
 else
@@ -942,28 +1073,29 @@ validate_snort_config
 ########################################
 # Disable network offloading options.
 print_notification "Disabling offloading options on the sniffing interfaces.."
-ethtool -K $snort_iface_1 rx off &>> $logfile
-ethtool -K $snort_iface_1 tx off &>> $logfile
-ethtool -K $snort_iface_1 sg off &>> $logfile
-ethtool -K $snort_iface_1 tso off &>> $logfile
-ethtool -K $snort_iface_1 ufo off &>> $logfile
-ethtool -K $snort_iface_1 gso off &>> $logfile
-ethtool -K $snort_iface_1 gro off &>> $logfile
-ethtool -K $snort_iface_1 lro off &>> $logfile
-ethtool -K $snort_iface_2 rx off &>> $logfile
-ethtool -K $snort_iface_2 tx off &>> $logfile
-ethtool -K $snort_iface_2 sg off &>> $logfile
-ethtool -K $snort_iface_2 tso off &>> $logfile
-ethtool -K $snort_iface_2 ufo off &>> $logfile
-ethtool -K $snort_iface_2 gso off &>> $logfile
-ethtool -K $snort_iface_2 gro off &>> $logfile
-ethtool -K $snort_iface_2 lro off &>> $logfile
+ethtool -K $snort_iface_1 rx off >> "$logfile" 2>&1
+ethtool -K $snort_iface_1 tx off >> "$logfile" 2>&1
+ethtool -K $snort_iface_1 sg off >> "$logfile" 2>&1
+ethtool -K $snort_iface_1 tso off >> "$logfile" 2>&1
+ethtool -K $snort_iface_1 ufo off >> "$logfile" 2>&1
+ethtool -K $snort_iface_1 gso off >> "$logfile" 2>&1
+ethtool -K $snort_iface_1 gro off >> "$logfile" 2>&1
+ethtool -K $snort_iface_1 lro off >> "$logfile" 2>&1
+ethtool -K $snort_iface_2 rx off >> "$logfile" 2>&1
+ethtool -K $snort_iface_2 tx off >> "$logfile" 2>&1
+ethtool -K $snort_iface_2 sg off >> "$logfile" 2>&1
+ethtool -K $snort_iface_2 tso off >> "$logfile" 2>&1
+ethtool -K $snort_iface_2 ufo off >> "$logfile" 2>&1
+ethtool -K $snort_iface_2 gso off >> "$logfile" 2>&1
+ethtool -K $snort_iface_2 gro off >> "$logfile" 2>&1
+ethtool -K $snort_iface_2 lro off >> "$logfile" 2>&1
 
 ########################################
 # Install systemd service.
-cd "$execdir"
+cd "$execdir" || exit 1
 if [ -f /etc/systemd/system/snortd.service ]; then
-    print_notification "Snortd init script already installed."
+    print_notification "snortd.service already exists; leaving the existing administrator-managed unit unchanged."
+    print_notification "If it was generated by an older installer, review it against $execdir/snortd.service before restarting Snort."
 else
     if [ ! -f "$execdir/snortd.service" ]; then
         print_error "Unable to find $execdir/snortd.service. Please ensure the snortd.service file is there and try again."
@@ -972,26 +1104,29 @@ else
         print_good "Found snortd systemd service script. Configuring.."
     fi
     
-    cp snortd.service snortd_2 &>> $logfile
-    sed -i "s#snort_basedir#$snort_basedir#g" snortd_2
-    sed -i "s#snort_iface1#$snort_iface_1#g" snortd_2
-    sed -i "s#snort_iface2#$snort_iface_2#g" snortd_2
-    # Add verbose output and logging
-    sed -i "s#ExecStart=.*#ExecStart=$snort_basedir/bin/snort -u snort -g snort -c $snort_basedir/etc/snort.conf -i $snort_iface_1:$snort_iface_2 -v -D --pid-path=/var/run --create-pidfile -l /var/log/snort#g" snortd_2
-    cp snortd_2 /etc/systemd/system/snortd.service &>> $logfile
-    chown root:root /etc/systemd/system/snortd.service &>> $logfile
-    chmod 700 /etc/systemd/system/snortd.service &>> $logfile
-    systemctl daemon-reload &>> $logfile
+    unit_tmp=$(mktemp /tmp/autosnort-snortd.XXXXXX)
+    sed \
+        -e "s|@SNORT_BASEDIR@|$snort_basedir|g" \
+        -e "s|@SNORT_IFACE_1@|$snort_iface_1|g" \
+        -e "s|@SNORT_IFACE_2@|$snort_iface_2|g" \
+        "$execdir/snortd.service" > "$unit_tmp"
+    if command -v systemd-analyze >/dev/null 2>&1; then
+        systemd-analyze verify "$unit_tmp" >> "$logfile" 2>&1
+        error_check 'snortd.service validation'
+    fi
+    install -o root -g root -m 0644 "$unit_tmp" /etc/systemd/system/snortd.service >> "$logfile" 2>&1
     error_check 'snortd.service installation'
+    rm -f "$unit_tmp"
+    systemctl daemon-reload >> "$logfile" 2>&1
+    error_check 'snortd.service daemon reload'
     print_notification "Location: /etc/systemd/system/snortd.service"
-    systemctl enable snortd.service &>> $logfile
+    systemctl enable snortd.service >> "$logfile" 2>&1
     error_check 'snortd.service enable'
-    rm -rf snortd_2 &>> $logfile
 fi
 
 # Start and verify snortd service
 print_status "Starting snortd service..."
-systemctl start snortd.service &>> $logfile
+systemctl start snortd.service >> "$logfile" 2>&1
 if [ $? -ne 0 ]; then
     print_error "Failed to start snortd service. Check systemctl status snortd.service and /var/log/snort for details."
     exit 1
@@ -999,8 +1134,12 @@ fi
 print_good "snortd service started successfully."
 
 ########################################
-print_status "Rebooting now.."
-init 6
+if (( REBOOT == 1 )); then
+    print_status "Rebooting now because --reboot was requested.."
+    systemctl reboot
+else
+    print_notification "Automatic reboot skipped. Reboot manually when the lab is ready, or re-run with --reboot."
+fi
 print_notification "The log file for Autosnort is located at: $logfile"
 print_good "We're all done here. Have a nice day."
 exit 0
