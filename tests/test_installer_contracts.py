@@ -22,6 +22,15 @@ class InstallerContractTests(unittest.TestCase):
         self.assertNotIn('source "$conf_file"', source)
         self.assertNotIn("eval ", source)
 
+    def test_ci_and_docs_enforce_patch_hygiene(self) -> None:
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+        checkout_count = workflow.count("actions/checkout@")
+        self.assertGreater(checkout_count, 0)
+        self.assertEqual(checkout_count, workflow.count("git diff --check"))
+        self.assertIn("git diff --check", readme)
+
     def test_downloads_keep_tls_verification_enabled(self) -> None:
         source = INSTALLER.read_text(encoding="utf-8")
 

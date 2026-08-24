@@ -10,7 +10,7 @@ Run the strongest documented local gate before requesting review:
 
 - run the repository's documented test, lint, type-check, build, audit, or shell-validation commands;
 - run `bash ZeroXSHDW_autosnort-ubuntu.sh --check` with a disposable valid configuration when installer behavior changes; this mode must not mutate the host;
-- run `git diff --check`;
+- run `git diff --check` (the CI-blocking patch-hygiene gate);
 - add or update a regression test for every repaired contract or failure path;
 - confirm documentation, examples, links, and configuration match the implementation.
 

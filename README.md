@@ -210,6 +210,7 @@ To prevent network traffic fallout due to lab activities, secure the host system
 Run the same lightweight checks locally before opening a pull request:
 
 ```bash
+git diff --check
 bash -n ZeroXSHDW_autosnort-ubuntu.sh
 bash -n ORIG_DA667_autosnort-ubuntu-AVATAR.sh
 shellcheck --severity=warning -- ZeroXSHDW_autosnort-ubuntu.sh
